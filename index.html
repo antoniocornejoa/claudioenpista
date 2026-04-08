@@ -1,0 +1,991 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Claudio en Pista — Premium</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: { extend: {
+      colors: { brand: { DEFAULT: '#ff6a00', glow: '#ff8a3d' } },
+      fontFamily: { display: ['"Bebas Neue"','Impact','sans-serif'], body: ['"Space Grotesk"','system-ui','sans-serif'] }
+    }}
+  }
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *{cursor:none}
+  html,body{background:#070707;color:#fff;font-family:'Space Grotesk',system-ui,sans-serif;overflow-x:hidden}
+  .display{font-family:'Bebas Neue',Impact,sans-serif;letter-spacing:.02em}
+  .glow{text-shadow:0 0 30px rgba(255,106,0,.6),0 0 60px rgba(255,106,0,.3)}
+  .grain{background-image:radial-gradient(rgba(255,255,255,.03) 1px,transparent 1px);background-size:3px 3px}
+  .checker{background-image:repeating-linear-gradient(45deg,#fff 0 18px,transparent 18px 36px);opacity:.05}
+  .neon-border{box-shadow:0 0 0 1px rgba(255,106,0,.4),0 0 25px rgba(255,106,0,.25),inset 0 0 25px rgba(255,106,0,.05)}
+  .hover-glow{transition:all .4s cubic-bezier(.2,.8,.2,1)}
+  .hover-glow:hover{box-shadow:0 0 40px rgba(255,106,0,.55),0 0 80px rgba(255,106,0,.3);transform:translateY(-4px)}
+  ::selection{background:#ff6a00;color:#000}
+  /* loader */
+  #loader{position:fixed;inset:0;background:#070707;z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column}
+  #loader.done{opacity:0;pointer-events:none;transition:opacity .8s ease}
+  .loader-bar{width:240px;height:2px;background:#222;overflow:hidden;margin-top:24px}
+  .loader-bar i{display:block;height:100%;background:#ff6a00;width:0;transition:width .15s linear;box-shadow:0 0 14px #ff6a00}
+  .blink{animation:blink 1s steps(2) infinite}
+  @keyframes blink{50%{opacity:.2}}
+  /* cursor */
+  #cur{position:fixed;top:0;left:0;width:14px;height:14px;border-radius:50%;background:#ff6a00;mix-blend-mode:difference;pointer-events:none;z-index:9998;transform:translate(-50%,-50%);transition:width .2s,height .2s,background .2s}
+  #curRing{position:fixed;top:0;left:0;width:42px;height:42px;border:1.5px solid rgba(255,106,0,.6);border-radius:50%;pointer-events:none;z-index:9998;transform:translate(-50%,-50%);transition:transform .15s ease-out,width .25s,height .25s,border-color .25s}
+  /* progress */
+  #prog{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,#ff6a00,#ffb35a);z-index:9990;width:0;box-shadow:0 0 12px #ff6a00}
+  /* horizontal scroll */
+  .h-track{display:flex;gap:24px;will-change:transform}
+  /* tilt card base */
+  .tilt{transform-style:preserve-3d;transition:transform .15s ease-out;will-change:transform}
+  .tilt > *{transform:translateZ(40px)}
+  /* hide scrollbar nicely */
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-track{background:#0a0a0a}
+  ::-webkit-scrollbar-thumb{background:#ff6a00;border-radius:8px}
+</style>
+
+<script type="importmap">
+{
+  "imports": {
+    "react":      "https://esm.sh/react@18.3.1",
+    "react/":     "https://esm.sh/react@18.3.1/",
+    "react-dom":  "https://esm.sh/react-dom@18.3.1",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+    "react-dom/": "https://esm.sh/react-dom@18.3.1/",
+    "framer-motion": "https://esm.sh/framer-motion@11.3.19?deps=react@18.3.1,react-dom@18.3.1",
+    "three":     "https://esm.sh/three@0.160.0",
+    "gsap":      "https://esm.sh/gsap@3.12.5",
+    "gsap/ScrollTrigger": "https://esm.sh/gsap@3.12.5/ScrollTrigger",
+    "lenis":     "https://esm.sh/lenis@1.1.6",
+    "htm":       "https://esm.sh/htm@3.1.1"
+  }
+}
+</script>
+</head>
+<body class="bg-neutral-950">
+
+<div id="prog"></div>
+<div id="cur"></div>
+<div id="curRing"></div>
+
+<div id="loader">
+  <div class="display text-6xl glow text-brand">CLAUDIO EN PISTA</div>
+  <div class="text-xs tracking-[0.4em] text-neutral-500 mt-3">CARGANDO EXPERIENCIA · <span class="blink">█</span></div>
+  <div class="loader-bar"><i id="loaderBar"></i></div>
+  <div id="loaderPct" class="text-[10px] tracking-widest text-neutral-600 mt-2">0%</div>
+</div>
+
+<canvas id="bg3d" class="fixed inset-0 w-full h-full pointer-events-none" style="z-index:0"></canvas>
+
+<div id="root" class="relative" style="z-index:1"></div>
+<div id="errBox" style="display:none;position:fixed;bottom:20px;left:20px;right:20px;background:#1a0000;border:1px solid #ff3030;color:#ff8080;padding:16px;border-radius:12px;z-index:99999;font-family:monospace;font-size:12px;max-height:40vh;overflow:auto;white-space:pre-wrap"></div>
+
+<script>
+/* LOADER independiente — corre aunque los modulos ESM fallen */
+(function(){
+  var l=document.getElementById('loader'),b=document.getElementById('loaderBar'),pc=document.getElementById('loaderPct');
+  var p=0;
+  var iv=setInterval(function(){
+    p+=Math.random()*9+5;
+    if(p>=100){p=100;clearInterval(iv);setTimeout(function(){l.classList.add('done')},400);}
+    b.style.width=p+'%';pc.textContent=Math.floor(p)+'%';
+  },80);
+  setTimeout(function(){l.classList.add('done')},6000);
+})();
+window.addEventListener('error',function(e){
+  var x=document.getElementById('errBox');x.style.display='block';
+  x.textContent='ERROR: '+(e.message||'')+'\n'+(e.filename||'')+':'+(e.lineno||'');
+});
+window.addEventListener('unhandledrejection',function(e){
+  var x=document.getElementById('errBox');x.style.display='block';
+  x.textContent='PROMISE REJECTION: '+(e.reason && (e.reason.stack||e.reason.message||e.reason));
+});
+</script>
+
+<script type="module">
+import React, { useEffect, useRef, useState, useMemo } from 'react';
+import { createRoot } from 'react-dom/client';
+import { motion, AnimatePresence, useScroll, useTransform, useSpring, useMotionValue, animate } from 'framer-motion';
+import * as THREE from 'three';
+import gsap from 'gsap';
+import ScrollTrigger from 'gsap/ScrollTrigger';
+import Lenis from 'lenis';
+import htm from 'htm';
+
+const html = htm.bind(React.createElement);
+gsap.registerPlugin(ScrollTrigger);
+
+/* loader handled in non-module script above */
+
+/* ============== CUSTOM CURSOR ============== */
+const cur = document.getElementById('cur');
+const curRing = document.getElementById('curRing');
+let mx=0,my=0,rx=0,ry=0;
+window.addEventListener('mousemove', e => { mx=e.clientX; my=e.clientY; cur.style.left=mx+'px'; cur.style.top=my+'px'; });
+function loop(){ rx+=(mx-rx)*.18; ry+=(my-ry)*.18; curRing.style.left=rx+'px'; curRing.style.top=ry+'px'; requestAnimationFrame(loop); }
+loop();
+document.addEventListener('mouseover', e => {
+  if (e.target.closest('button,a,.tilt,input')) { curRing.style.width='64px'; curRing.style.height='64px'; curRing.style.borderColor='#ff6a00'; cur.style.background='#fff'; }
+  else { curRing.style.width='42px'; curRing.style.height='42px'; cur.style.background='#ff6a00'; }
+});
+
+/* ============== LENIS SMOOTH SCROLL ============== */
+const lenis = new Lenis({ duration: 1.2, easing: t => Math.min(1, 1.001 - Math.pow(2, -10*t)), smoothWheel: true });
+function raf(time){ lenis.raf(time); ScrollTrigger.update(); requestAnimationFrame(raf); }
+requestAnimationFrame(raf);
+
+/* ============== PROGRESS BAR ============== */
+const prog = document.getElementById('prog');
+lenis.on('scroll', ({ scroll, limit }) => { prog.style.width = (scroll/limit*100) + '%'; });
+
+/* ============== THREE.JS BACKGROUND (rotating low-poly F1 car) ============== */
+(function init3D(){
+  const canvas = document.getElementById('bg3d');
+  const renderer = new THREE.WebGLRenderer({ canvas, alpha:true, antialias:true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, .1, 100);
+  camera.position.set(0,1.4,7);
+
+  const car = new THREE.Group();
+  const orange = new THREE.MeshStandardMaterial({ color:0xff6a00, metalness:.85, roughness:.18, emissive:0x220800 });
+  const orangeDark = new THREE.MeshStandardMaterial({ color:0xcc4f00, metalness:.8, roughness:.3 });
+  const carbon = new THREE.MeshStandardMaterial({ color:0x0a0a0a, metalness:.6, roughness:.45 });
+  const matteBlack = new THREE.MeshStandardMaterial({ color:0x050505, metalness:.4, roughness:.8 });
+  const tireMat = new THREE.MeshStandardMaterial({ color:0x0a0a0a, roughness:.95, metalness:.05 });
+  const rimMat = new THREE.MeshStandardMaterial({ color:0x999999, metalness:1, roughness:.3 });
+  const glassMat = new THREE.MeshStandardMaterial({ color:0x1a2a3a, metalness:.9, roughness:.05, transparent:true, opacity:.7 });
+  const redLight = new THREE.MeshStandardMaterial({ color:0xff2200, emissive:0xff2200, emissiveIntensity:1.5 });
+
+  // ===== MONOCOQUE / CHASSIS principal (forma de gota) =====
+  // sección central larga y baja
+  const monoGeo = new THREE.BoxGeometry(2.6,.45,1.05);
+  monoGeo.translate(0,0,0);
+  const mono = new THREE.Mesh(monoGeo, orange);
+  mono.position.set(-.2,.5,0);
+  car.add(mono);
+
+  // bordes laterales (sidepods)
+  [.62,-.62].forEach(z => {
+    const sp = new THREE.Mesh(new THREE.BoxGeometry(2.0,.38,.35), orange);
+    sp.position.set(-.4,.45,z); car.add(sp);
+    const spTop = new THREE.Mesh(new THREE.BoxGeometry(1.6,.08,.35), orangeDark);
+    spTop.position.set(-.5,.66,z); car.add(spTop);
+    // intake sidepod
+    const intake = new THREE.Mesh(new THREE.BoxGeometry(.18,.28,.3), carbon);
+    intake.position.set(.55,.5,z); car.add(intake);
+  });
+
+  // ===== NOSE (cono largo hacia adelante) =====
+  const noseGeo = new THREE.CylinderGeometry(.05,.28,1.6,12);
+  const nose = new THREE.Mesh(noseGeo, orange);
+  nose.rotation.z = Math.PI/2;
+  nose.position.set(2.1,.42,0);
+  car.add(nose);
+
+  // ===== FRONT WING (multi-elemento) =====
+  const fwMain = new THREE.Mesh(new THREE.BoxGeometry(.08,.04,2.0), orange);
+  fwMain.position.set(2.95,.28,0); car.add(fwMain);
+  const fwUpper = new THREE.Mesh(new THREE.BoxGeometry(.25,.03,1.9), orangeDark);
+  fwUpper.position.set(2.85,.37,0); car.add(fwUpper);
+  const fwLower = new THREE.Mesh(new THREE.BoxGeometry(.3,.025,1.85), carbon);
+  fwLower.position.set(2.75,.22,0); car.add(fwLower);
+  // endplates frontales
+  [.95,-.95].forEach(z => {
+    const ep = new THREE.Mesh(new THREE.BoxGeometry(.45,.32,.04), carbon);
+    ep.position.set(2.85,.32,z); car.add(ep);
+  });
+
+  // ===== COCKPIT con HALO =====
+  const cockBase = new THREE.Mesh(new THREE.BoxGeometry(.85,.42,.6), carbon);
+  cockBase.position.set(0,.78,0); car.add(cockBase);
+  // cockpit interior (asiento)
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(.6,.25,.45), matteBlack);
+  seat.position.set(.05,.85,0); car.add(seat);
+  // halo (estructura de seguridad - aro sobre el cockpit)
+  const haloFront = new THREE.Mesh(new THREE.TorusGeometry(.32,.035,8,16,Math.PI), carbon);
+  haloFront.position.set(.4,1.0,0);
+  haloFront.rotation.x = Math.PI/2;
+  haloFront.rotation.z = Math.PI;
+  car.add(haloFront);
+  const haloBar1 = new THREE.Mesh(new THREE.CylinderGeometry(.03,.03,.7,8), carbon);
+  haloBar1.rotation.z = Math.PI/2; haloBar1.position.set(.05,1.18,0); car.add(haloBar1);
+
+  // ===== AIRBOX (toma de aire sobre el piloto) =====
+  const airbox = new THREE.Mesh(new THREE.BoxGeometry(.55,.45,.45), orange);
+  airbox.position.set(-.5,1.05,0); car.add(airbox);
+  const airboxTop = new THREE.Mesh(new THREE.BoxGeometry(.4,.08,.35), carbon);
+  airboxTop.position.set(-.5,1.32,0); car.add(airboxTop);
+  // intake circular
+  const intakeRing = new THREE.Mesh(new THREE.TorusGeometry(.14,.04,8,16), carbon);
+  intakeRing.position.set(-.2,1.1,0);
+  intakeRing.rotation.y = Math.PI/2;
+  car.add(intakeRing);
+
+  // ===== ENGINE COVER (carenado motor que se estrecha hacia atras) =====
+  const engCover = new THREE.Mesh(new THREE.BoxGeometry(1.4,.55,.85), orange);
+  engCover.position.set(-1.05,.78,0); car.add(engCover);
+  const engNarrow = new THREE.Mesh(new THREE.BoxGeometry(.5,.35,.4), orangeDark);
+  engNarrow.position.set(-1.7,.68,0); car.add(engNarrow);
+
+  // ===== REAR WING =====
+  // soportes
+  [.3,-.3].forEach(z => {
+    const sup = new THREE.Mesh(new THREE.BoxGeometry(.05,.7,.06), carbon);
+    sup.position.set(-1.95,1.05,z); car.add(sup);
+  });
+  // ala principal
+  const rwMain = new THREE.Mesh(new THREE.BoxGeometry(.18,.06,1.4), orange);
+  rwMain.position.set(-1.95,1.32,0); car.add(rwMain);
+  // segundo ala (DRS)
+  const rwTop = new THREE.Mesh(new THREE.BoxGeometry(.12,.04,1.35), orangeDark);
+  rwTop.position.set(-2.0,1.42,0); car.add(rwTop);
+  // endplates traseros
+  [.7,-.7].forEach(z => {
+    const ep = new THREE.Mesh(new THREE.BoxGeometry(.35,.45,.04), carbon);
+    ep.position.set(-2.0,1.25,z); car.add(ep);
+  });
+  // luz de lluvia trasera
+  const rainLight = new THREE.Mesh(new THREE.BoxGeometry(.08,.08,.12), redLight);
+  rainLight.position.set(-2.05,1.15,0); car.add(rainLight);
+
+  // ===== ESCAPE =====
+  const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(.07,.09,.2,12), carbon);
+  exhaust.rotation.z = Math.PI/2; exhaust.position.set(-2.1,.85,0); car.add(exhaust);
+
+  // ===== DIFUSOR =====
+  const diff = new THREE.Mesh(new THREE.BoxGeometry(.4,.18,1.0), carbon);
+  diff.position.set(-1.95,.3,0); car.add(diff);
+
+  // ===== RUEDAS (con neumático + llanta + brake duct) =====
+  function makeWheel(){
+    const g = new THREE.Group();
+    // neumático
+    const tire = new THREE.Mesh(new THREE.CylinderGeometry(.5,.5,.42,32), tireMat);
+    tire.rotation.x = Math.PI/2;
+    g.add(tire);
+    // llanta
+    const rim = new THREE.Mesh(new THREE.CylinderGeometry(.32,.32,.43,24), rimMat);
+    rim.rotation.x = Math.PI/2;
+    g.add(rim);
+    // centro
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(.08,.08,.46,12), orange);
+    hub.rotation.x = Math.PI/2;
+    g.add(hub);
+    // radios
+    for (let i=0;i<5;i++){
+      const spoke = new THREE.Mesh(new THREE.BoxGeometry(.55,.04,.06), carbon);
+      spoke.rotation.x = (i/5)*Math.PI*2;
+      g.add(spoke);
+    }
+    return g;
+  }
+  const wheels = [];
+  [[1.55,.5,.95],[1.55,.5,-.95],[-1.45,.5,.95],[-1.45,.5,-.95]].forEach(([x,y,z])=>{
+    const w = makeWheel();
+    w.position.set(x,y,z);
+    car.add(w);
+    wheels.push(w);
+  });
+
+  // ===== SUSPENSIÓN (brazos visibles) =====
+  [[1.55,.95],[1.55,-.95],[-1.45,.95],[-1.45,-.95]].forEach(([x,z]) => {
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(.025,.025,.55,6), carbon);
+    arm.rotation.x = Math.PI/2;
+    arm.position.set(x,.5,z*.55);
+    car.add(arm);
+  });
+
+  // ===== PISO REFLECTANTE para que no flote =====
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(40,40),
+    new THREE.MeshStandardMaterial({ color:0x050505, metalness:.7, roughness:.4 })
+  );
+  floor.rotation.x = -Math.PI/2;
+  floor.position.y = -.05;
+  scene.add(floor);
+
+  // sombra debajo del auto (disco oscuro)
+  const shadow = new THREE.Mesh(
+    new THREE.CircleGeometry(2.5,32),
+    new THREE.MeshBasicMaterial({ color:0x000000, transparent:true, opacity:.6 })
+  );
+  shadow.rotation.x = -Math.PI/2;
+  shadow.position.y = -.04;
+  scene.add(shadow);
+
+  car.rotation.y = -.4;
+  scene.add(car);
+
+  // exponer wheels al loop para girarlas
+  car.userData.wheels = wheels;
+
+  // lights
+  scene.add(new THREE.AmbientLight(0xffffff,.35));
+  const key = new THREE.DirectionalLight(0xff8a3d,2.2); key.position.set(4,5,5); scene.add(key);
+  const rim = new THREE.DirectionalLight(0x66aaff,1.2); rim.position.set(-5,3,-2); scene.add(rim);
+  const pt = new THREE.PointLight(0xff6a00,3,12); pt.position.set(0,2,3); scene.add(pt);
+
+  // particles
+  const pgeo = new THREE.BufferGeometry();
+  const pcount = 400;
+  const pos = new Float32Array(pcount*3);
+  for (let i=0;i<pcount;i++){ pos[i*3]= (Math.random()-.5)*30; pos[i*3+1]=(Math.random()-.5)*15; pos[i*3+2]=(Math.random()-.5)*20; }
+  pgeo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  const particles = new THREE.Points(pgeo, new THREE.PointsMaterial({ color:0xff6a00, size:.025, transparent:true, opacity:.6 }));
+  scene.add(particles);
+
+  function resize(){ renderer.setSize(innerWidth,innerHeight); camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); }
+  resize(); addEventListener('resize',resize);
+
+  let scrollY = 0;
+  lenis.on('scroll', ({scroll}) => { scrollY = scroll; });
+
+  function render(t){
+    car.rotation.y = -.4 + Math.sin(t*.0004)*.4 + scrollY*.002;
+    car.position.y = .05 + Math.sin(t*.001)*.08;
+    if (car.userData.wheels) car.userData.wheels.forEach(w => w.rotation.x = t*.005);
+    particles.rotation.y = t*.00005;
+    camera.position.x = Math.sin(t*.0003)*.4;
+    camera.lookAt(0,.6,0);
+    renderer.render(scene,camera);
+    requestAnimationFrame(render);
+  }
+  render(0);
+})();
+
+/* ============== DATA ============== */
+const STICKERS = [
+  { id:1, name:'CLÁSICO CEP',       price:2000, emoji:'🏁', desc:'Logo troquelado vinilo premium 8cm' },
+  { id:2, name:'PACK RACING X3',    price:5000, emoji:'🏎️', desc:'Tres diseños racing holográficos' },
+  { id:3, name:'F1 BRASIL 2026',    price:3000, emoji:'🇧🇷', desc:'Edición limitada Interlagos' },
+  { id:4, name:'CASCO PREMIUM',     price:4500, emoji:'⛑️', desc:'Vinilo resistente al agua' },
+  { id:5, name:'BANDERA A CUADROS', price:2500, emoji:'🏁', desc:'Clásico motorsport 10cm' },
+  { id:6, name:'PACK FAN X5',       price:8000, emoji:'🔥', desc:'Cinco stickers surtidos' },
+];
+
+/* ============== HOOKS ============== */
+function useTilt(){
+  const ref = useRef(null);
+  useEffect(()=>{
+    const el = ref.current; if (!el) return;
+    function move(e){
+      const r = el.getBoundingClientRect();
+      const x = (e.clientX - r.left)/r.width - .5;
+      const y = (e.clientY - r.top)/r.height - .5;
+      el.style.transform = `perspective(900px) rotateY(${x*14}deg) rotateX(${-y*14}deg) translateZ(0)`;
+    }
+    function leave(){ el.style.transform = 'perspective(900px) rotateY(0) rotateX(0)'; }
+    el.addEventListener('mousemove',move); el.addEventListener('mouseleave',leave);
+    return ()=>{ el.removeEventListener('mousemove',move); el.removeEventListener('mouseleave',leave); };
+  },[]);
+  return ref;
+}
+
+function Counter({ to, duration=2, suffix='' }){
+  const [v,setV] = useState(0);
+  const ref = useRef(null);
+  useEffect(()=>{
+    const obs = new IntersectionObserver(([e])=>{
+      if (e.isIntersecting){
+        const c = animate(0,to,{ duration, ease:'easeOut', onUpdate:val=>setV(Math.floor(val)) });
+        obs.disconnect();
+        return ()=>c.stop();
+      }
+    },{threshold:.4});
+    if (ref.current) obs.observe(ref.current);
+    return ()=>obs.disconnect();
+  },[to]);
+  return html`<span ref=${ref}>${v.toLocaleString('es-CL')}${suffix}</span>`;
+}
+
+/* ============== COMPONENTS ============== */
+function Nav({ tab, setTab, cartCount, openCart, openAdmin }){
+  const tabs = [['home','INICIO'],['sorteo','SORTEO'],['stickers','TIENDA'],['bases','BASES'],['ruleta','RULETA']];
+  return html`
+    <header class="fixed top-0 left-0 right-0 z-30 px-6 py-4 backdrop-blur-md bg-black/40 border-b border-white/5">
+      <div class="max-w-7xl mx-auto flex items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <div class="w-11 h-11 rounded-full bg-gradient-to-br from-brand to-yellow-400 flex items-center justify-center font-black text-black text-lg display">CP</div>
+          <div>
+            <div class="display text-xl leading-none">CLAUDIO EN PISTA</div>
+            <div class="text-[10px] tracking-[0.3em] text-neutral-500">@CLAUDIOENPISTA</div>
+          </div>
+        </div>
+        <nav class="hidden md:flex items-center gap-1">
+          ${tabs.map(([id,label]) => html`
+            <button key=${id} onClick=${()=>setTab(id)}
+              class=${"display text-sm tracking-widest px-4 py-2 rounded-full transition "+(tab===id?"bg-brand text-black":"text-neutral-300 hover:text-brand")}>
+              ${label}
+            </button>
+          `)}
+        </nav>
+        <div class="flex items-center gap-2">
+          <button onClick=${openCart} class="relative px-4 py-2 rounded-full border border-white/15 hover:border-brand hover-glow display tracking-widest text-sm">
+            CART ${cartCount>0 && html`<span class="ml-1 bg-brand text-black rounded-full px-2 text-xs font-bold">${cartCount}</span>`}
+          </button>
+          <button onClick=${openAdmin} class="px-3 py-2 rounded-full border border-white/10 text-xs tracking-widest text-neutral-400 hover:text-brand hover:border-brand">
+            ADMIN
+          </button>
+        </div>
+      </div>
+    </header>
+  `;
+}
+
+function Hero({ goto }){
+  return html`
+    <section class="relative min-h-screen flex items-center px-6 pt-32 pb-20">
+      <div class="absolute inset-0 grain pointer-events-none"></div>
+      <div class="max-w-7xl mx-auto w-full grid md:grid-cols-12 gap-8 items-center relative">
+        <div class="md:col-span-7">
+          <${motion.div}
+            initial=${{opacity:0,y:30}} animate=${{opacity:1,y:0}} transition=${{duration:.8,delay:.2}}
+            class="inline-flex items-center gap-2 px-4 py-1.5 border border-brand/40 rounded-full text-xs tracking-[0.3em] text-brand mb-6 bg-brand/5">
+            ● SORTEO ACTIVO · 2026
+          </${motion.div}>
+          <${motion.h1}
+            initial=${{opacity:0,y:50}} animate=${{opacity:1,y:0}} transition=${{duration:1,delay:.3}}
+            class="display text-7xl md:text-[8.5rem] leading-[0.85] glow">
+            GANA UN<br/>VIAJE A LA<br/><span class="text-brand">F1 BRASIL</span>
+          </${motion.h1}>
+          <${motion.p}
+            initial=${{opacity:0}} animate=${{opacity:1}} transition=${{duration:1,delay:.8}}
+            class="mt-8 text-lg text-neutral-400 max-w-xl">
+            Interlagos te espera. Compra stickers oficiales, suma números y vive el rugido de los motores en el Gran Premio de São Paulo 2026.
+          </${motion.p}>
+          <${motion.div}
+            initial=${{opacity:0,y:20}} animate=${{opacity:1,y:0}} transition=${{duration:.8,delay:1}}
+            class="mt-10 flex flex-wrap gap-4">
+            <button onClick=${()=>goto('stickers')} class="hover-glow px-8 py-4 bg-brand text-black display tracking-widest rounded-full">
+              PARTICIPAR AHORA →
+            </button>
+            <button onClick=${()=>goto('sorteo')} class="px-8 py-4 border border-white/20 hover:border-brand display tracking-widest rounded-full hover-glow">
+              VER PREMIO
+            </button>
+          </${motion.div}>
+        </div>
+        <div class="md:col-span-5">
+          <div class="grid grid-cols-2 gap-4">
+            ${[
+              {n:12500,s:'+',l:'PARTICIPANTES'},
+              {n:48,s:'',l:'SORTEOS REALIZADOS'},
+              {n:850,s:'M',l:'EN PREMIOS CLP'},
+              {n:100,s:'%',l:'NOTARIADOS'},
+            ].map((s,i)=> html`
+              <div key=${i} class="border border-white/10 rounded-2xl p-5 bg-white/5 backdrop-blur hover-glow">
+                <div class="display text-4xl text-brand"><${Counter} to=${s.n} suffix=${s.s}/></div>
+                <div class="text-[10px] tracking-[0.25em] text-neutral-500 mt-1">${s.l}</div>
+              </div>
+            `)}
+          </div>
+        </div>
+      </div>
+      <div class="absolute bottom-8 left-1/2 -translate-x-1/2 text-[10px] tracking-[0.4em] text-neutral-600">SCROLL ↓</div>
+    </section>
+  `;
+}
+
+function Marquee(){
+  return html`
+    <div class="relative overflow-hidden border-y border-white/10 bg-black/40 py-6">
+      <${motion.div}
+        animate=${{x:['0%','-50%']}}
+        transition=${{duration:25,ease:'linear',repeat:Infinity}}
+        class="flex gap-12 whitespace-nowrap display text-5xl text-neutral-700">
+        ${Array.from({length:8}).map((_,i)=>html`<span key=${i} class="flex items-center gap-12">CLAUDIO EN PISTA <span class="text-brand">●</span> F1 BRASIL 2026 <span class="text-brand">●</span> INTERLAGOS <span class="text-brand">●</span> SORTEO OFICIAL <span class="text-brand">●</span></span>`)}
+      </${motion.div}>
+    </div>
+  `;
+}
+
+function HorizontalGallery(){
+  const trackRef = useRef(null);
+  const sectionRef = useRef(null);
+  useEffect(()=>{
+    const ctx = gsap.context(()=>{
+      gsap.to(trackRef.current,{
+        xPercent:-65,
+        ease:'none',
+        scrollTrigger:{ trigger:sectionRef.current, start:'top top', end:'+=2000', scrub:1, pin:true }
+      });
+    });
+    return ()=>ctx.revert();
+  },[]);
+  const items = [
+    {t:'INTERLAGOS',d:'4.309 KM · 71 VUELTAS',c:'from-green-500/30 to-yellow-500/20'},
+    {t:'SAO PAULO',d:'BRASIL · NOVIEMBRE 2026',c:'from-yellow-500/30 to-brand/20'},
+    {t:'GRAND PRIX',d:'EXPERIENCIA VIP',c:'from-brand/40 to-red-700/20'},
+    {t:'2 PERSONAS',d:'VUELO + HOTEL + TICKETS',c:'from-blue-500/30 to-purple-500/20'},
+    {t:'PADDOCK',d:'ACCESO PREFERENCIAL',c:'from-red-600/40 to-brand/20'},
+  ];
+  return html`
+    <section ref=${sectionRef} class="h-screen overflow-hidden flex items-center">
+      <div class="px-6 max-w-7xl mx-auto w-full">
+        <div class="flex items-end justify-between mb-10">
+          <h2 class="display text-6xl md:text-8xl leading-none">EL <span class="text-brand">PREMIO</span></h2>
+          <div class="text-xs tracking-[0.3em] text-neutral-500 hidden md:block">DESLIZA →</div>
+        </div>
+        <div ref=${trackRef} class="h-track">
+          ${items.map((it,i)=>html`
+            <div key=${i} class="shrink-0 w-[420px] h-[420px] rounded-3xl border border-white/10 bg-gradient-to-br ${it.c} p-8 flex flex-col justify-between relative overflow-hidden hover-glow">
+              <div class="absolute inset-0 checker"></div>
+              <div class="relative">
+                <div class="text-[10px] tracking-[0.4em] text-neutral-300">PREMIO · 0${i+1}</div>
+                <div class="display text-5xl mt-3">${it.t}</div>
+              </div>
+              <div class="relative text-sm tracking-widest text-neutral-200">${it.d}</div>
+            </div>
+          `)}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function StickerCard({ s, qty, add, sub }){
+  const ref = useTilt();
+  return html`
+    <div ref=${ref} class="tilt rounded-3xl border border-white/10 bg-gradient-to-b from-white/5 to-transparent p-6 hover-glow">
+      <div class="aspect-square rounded-2xl bg-gradient-to-br from-brand/30 via-black to-black flex items-center justify-center text-8xl mb-5 relative overflow-hidden">
+        <div class="absolute inset-0 checker"></div>
+        <div class="relative">${s.emoji}</div>
+      </div>
+      <div class="display text-2xl tracking-wide">${s.name}</div>
+      <div class="text-sm text-neutral-500 mt-1">${s.desc}</div>
+      <div class="flex items-center justify-between mt-5">
+        <div class="display text-3xl text-brand">$${s.price.toLocaleString('es-CL')}</div>
+        ${qty>0 ? html`
+          <div class="flex items-center gap-2 bg-white/5 border border-white/10 rounded-full px-2 py-1">
+            <button onClick=${()=>sub(s.id)} class="w-7 h-7 rounded-full bg-white/10 hover:bg-brand hover:text-black">−</button>
+            <span class="font-bold w-6 text-center">${qty}</span>
+            <button onClick=${()=>add(s.id)} class="w-7 h-7 rounded-full bg-white/10 hover:bg-brand hover:text-black">+</button>
+          </div>
+        ` : html`
+          <button onClick=${()=>add(s.id)} class="px-5 py-2 rounded-full bg-brand text-black display tracking-widest text-sm hover-glow">+ ADD</button>
+        `}
+      </div>
+    </div>
+  `;
+}
+
+function Stickers({ cart, add, sub }){
+  return html`
+    <section class="px-6 py-32 relative">
+      <div class="max-w-7xl mx-auto">
+        <${motion.div}
+          initial=${{opacity:0,y:40}} whileInView=${{opacity:1,y:0}} viewport=${{once:true}} transition=${{duration:.8}}
+          class="mb-16 flex items-end justify-between flex-wrap gap-6">
+          <div>
+            <div class="text-xs tracking-[0.4em] text-brand mb-3">// TIENDA OFICIAL</div>
+            <h2 class="display text-7xl md:text-9xl leading-none">STICKERS<br/><span class="text-brand">OFICIALES</span></h2>
+          </div>
+          <div class="text-sm text-neutral-400 max-w-xs">Cada $1.000 = 1 número para el sorteo F1 Brasil 2026. Stock limitado. Envío a todo Chile.</div>
+        </${motion.div}>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          ${STICKERS.map(s => html`<${StickerCard} key=${s.id} s=${s} qty=${cart[s.id]||0} add=${add} sub=${sub}/>`)}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function Sorteo({ goto }){
+  const { scrollYProgress } = useScroll();
+  const y = useTransform(scrollYProgress,[0,1],[0,-200]);
+  return html`
+    <section class="px-6 py-32 relative">
+      <${motion.div} style=${{y}} class="absolute inset-0 grain pointer-events-none"></${motion.div}>
+      <div class="max-w-7xl mx-auto">
+        <div class="text-xs tracking-[0.4em] text-brand mb-3">// PREMIO MAYOR</div>
+        <h2 class="display text-7xl md:text-9xl leading-none mb-12">VIAJE A<br/><span class="text-brand glow">INTERLAGOS</span></h2>
+        <div class="grid md:grid-cols-3 gap-6">
+          ${[
+            {n:'01',t:'VUELOS',d:'Pasajes ida y vuelta Santiago — São Paulo para 2 personas'},
+            {n:'02',t:'HOTEL',d:'4 noches en hotel 4★ con desayuno incluido'},
+            {n:'03',t:'TICKETS',d:'Entradas oficiales GP Brasil 2026 los 3 días'},
+            {n:'04',t:'TRASLADOS',d:'Aeropuerto, hotel y circuito coordinados'},
+            {n:'05',t:'PADDOCK',d:'Acceso preferencial zona pit lane'},
+            {n:'06',t:'SEGURO',d:'Seguro de viaje internacional incluido'},
+          ].map((c,i)=>html`
+            <${motion.div} key=${i}
+              initial=${{opacity:0,y:60}} whileInView=${{opacity:1,y:0}} viewport=${{once:true}} transition=${{duration:.6,delay:i*.08}}
+              class="border border-white/10 rounded-3xl p-8 bg-white/5 backdrop-blur hover-glow">
+              <div class="display text-brand text-5xl">${c.n}</div>
+              <div class="display text-3xl mt-2">${c.t}</div>
+              <div class="text-sm text-neutral-400 mt-3">${c.d}</div>
+            </${motion.div}>
+          `)}
+        </div>
+        <div class="mt-12 text-center">
+          <button onClick=${()=>goto('stickers')} class="px-10 py-5 bg-brand text-black display tracking-widest rounded-full text-lg hover-glow">
+            QUIERO PARTICIPAR →
+          </button>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function Bases(){
+  return html`
+    <section class="px-6 py-32 relative">
+      <div class="max-w-4xl mx-auto">
+        <div class="text-xs tracking-[0.4em] text-brand mb-3">// LEGAL</div>
+        <h2 class="display text-7xl md:text-9xl leading-none mb-12">BASES<br/><span class="text-brand">NOTARIALES</span></h2>
+        <div class="border border-white/10 rounded-3xl p-10 bg-white/5 backdrop-blur space-y-5 text-neutral-300 leading-relaxed neon-border">
+          <div class="text-[10px] tracking-[0.4em] text-brand">SORTEO VIAJE F1 BRASIL 2026 — BASES Y CONDICIONES</div>
+          <p><strong class="text-white">Organizador:</strong> Claudio en Pista (@claudioenpista).</p>
+          <p><strong class="text-white">Vigencia:</strong> del 1 de mayo al 25 de octubre de 2026.</p>
+          <p><strong class="text-white">Participantes:</strong> mayores de 18 años residentes en Chile con cédula vigente.</p>
+          <p><strong class="text-white">Mecánica:</strong> por cada compra de stickers oficiales en el sitio, el participante recibe números correlativos (1 por cada $1.000 CLP gastados).</p>
+          <p><strong class="text-white">Sorteo:</strong> realizado ante Notario Público de Santiago el 1 de noviembre de 2026 y transmitido en vivo por Instagram.</p>
+          <p><strong class="text-white">Premio:</strong> viaje para dos personas al GP de Brasil 2026 (vuelos, hotel 4 noches, entradas 3 días, traslados y seguro). No canjeable por dinero.</p>
+          <button class="mt-4 px-6 py-3 bg-brand text-black display tracking-widest rounded-full hover-glow">DESCARGAR PDF NOTARIADO</button>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function Ruleta(){
+  const [list,setList] = useState(['Javier R.','María P.','Cristóbal A.','Dani S.','Tomás V.','Valentina M.','Felipe G.','Constanza L.']);
+  const [name,setName] = useState('');
+  const [winner,setWinner] = useState(null);
+  const [spinning,setSpinning] = useState(false);
+  const [current,setCurrent] = useState('—');
+
+  function spin(){
+    if (spinning || list.length < 2) return;
+    setSpinning(true); setWinner(null);
+    let i = 0; const total = 40 + Math.floor(Math.random()*20);
+    const iv = setInterval(()=>{
+      i++;
+      setCurrent(list[Math.floor(Math.random()*list.length)]);
+      if (i>=total){
+        clearInterval(iv);
+        const w = list[Math.floor(Math.random()*list.length)];
+        setCurrent(w); setWinner(w); setSpinning(false);
+      }
+    },70);
+  }
+  return html`
+    <section class="px-6 py-32 relative">
+      <div class="max-w-3xl mx-auto text-center">
+        <div class="text-xs tracking-[0.4em] text-brand mb-3">// SISTEMA EN VIVO</div>
+        <h2 class="display text-7xl md:text-9xl leading-none mb-12">RULETA<br/><span class="text-brand">OFICIAL</span></h2>
+        <div class="border-2 border-brand rounded-3xl p-12 bg-black/60 neon-border backdrop-blur">
+          <div class="h-32 flex items-center justify-center">
+            ${winner && !spinning ? html`
+              <${motion.div} initial=${{scale:.5,opacity:0}} animate=${{scale:1,opacity:1}} transition=${{type:'spring',stiffness:200}}>
+                <div class="text-xs tracking-[0.4em] text-brand">🏆 GANADOR 🏆</div>
+                <div class="display text-6xl text-brand glow mt-3">${winner}</div>
+              </${motion.div}>
+            ` : html`
+              <div class=${"display text-5xl "+(spinning?'text-white':'text-neutral-600')}>${current}</div>
+            `}
+          </div>
+          <button onClick=${spin} disabled=${spinning||list.length<2}
+            class="mt-6 px-12 py-5 bg-brand text-black display tracking-widest text-lg rounded-full hover-glow disabled:opacity-40">
+            ${spinning?'SORTEANDO...':'🎲 GIRAR RULETA'}
+          </button>
+        </div>
+        <div class="mt-8 border border-white/10 rounded-3xl p-6 bg-white/5 backdrop-blur text-left">
+          <div class="display tracking-widest mb-4">PARTICIPANTES (${list.length})</div>
+          <div class="flex gap-2 mb-4">
+            <input value=${name} onChange=${e=>setName(e.target.value)}
+              onKeyDown=${e=>{ if(e.key==='Enter' && name.trim()){ setList([...list,name.trim()]); setName(''); }}}
+              placeholder="Nombre del participante"
+              class="flex-1 bg-black/40 border border-white/10 rounded-full px-5 py-3 outline-none focus:border-brand"/>
+            <button onClick=${()=>{ if(name.trim()){ setList([...list,name.trim()]); setName(''); } }}
+              class="px-6 bg-brand text-black display tracking-widest rounded-full hover-glow">+</button>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            ${list.map((p,i)=>html`<span key=${i} class="bg-white/5 border border-white/10 px-4 py-1.5 rounded-full text-sm">${p}</span>`)}
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function CartDrawer({ open, close, cart, add, sub }){
+  const [stage,setStage] = useState('idle');
+  const items = Object.entries(cart).map(([id,q])=>({...STICKERS.find(s=>s.id===+id),qty:q}));
+  const total = items.reduce((a,b)=>a+b.price*b.qty,0);
+  function pay(){ setStage('pay'); setTimeout(()=>setStage('done'),2200); }
+  function reset(){ setStage('idle'); close(); Object.keys(cart).forEach(k=>sub(+k)); }
+  return html`
+    <${AnimatePresence}>
+      ${open && html`
+        <${motion.div} key="d" initial=${{opacity:0}} animate=${{opacity:1}} exit=${{opacity:0}}
+          class="fixed inset-0 z-50 flex justify-end" onClick=${()=>stage!=='pay'&&close()}>
+          <div class="absolute inset-0 bg-black/80 backdrop-blur"></div>
+          <${motion.div} initial=${{x:'100%'}} animate=${{x:0}} exit=${{x:'100%'}} transition=${{type:'spring',damping:25}}
+            class="relative w-full max-w-md bg-neutral-950 border-l border-brand/30 h-full overflow-y-auto neon-border" onClick=${e=>e.stopPropagation()}>
+            <div class="p-6 border-b border-white/10 flex items-center justify-between">
+              <div class="display text-2xl">CARRITO</div>
+              <button onClick=${close} class="text-2xl hover:text-brand">✕</button>
+            </div>
+            ${stage==='done' ? html`
+              <div class="p-10 text-center">
+                <${motion.div} initial=${{scale:0}} animate=${{scale:1}} transition=${{type:'spring'}}
+                  class="w-20 h-20 bg-brand rounded-full flex items-center justify-center mx-auto text-4xl text-black">✓</${motion.div}>
+                <div class="display text-3xl mt-6">PAGO EXITOSO</div>
+                <p class="text-neutral-400 mt-3">Recibirás tus números de participación por email. ¡Mucha suerte!</p>
+                <button onClick=${reset} class="mt-8 px-8 py-3 bg-brand text-black display tracking-widest rounded-full hover-glow">CERRAR</button>
+              </div>
+            ` : stage==='pay' ? html`
+              <div class="p-10 text-center">
+                <div class="text-7xl animate-pulse">💳</div>
+                <div class="display text-2xl mt-6">PROCESANDO STRIPE...</div>
+                <div class="text-sm text-neutral-500 mt-2">$${total.toLocaleString('es-CL')}</div>
+              </div>
+            ` : items.length===0 ? html`
+              <div class="p-10 text-center text-neutral-500">Tu carrito está vacío</div>
+            ` : html`
+              <div class="p-6 space-y-3">
+                ${items.map(it=>html`
+                  <div key=${it.id} class="flex items-center gap-4 bg-white/5 border border-white/10 rounded-2xl p-4">
+                    <div class="text-4xl">${it.emoji}</div>
+                    <div class="flex-1">
+                      <div class="display tracking-wide">${it.name}</div>
+                      <div class="text-brand display">$${it.price.toLocaleString('es-CL')}</div>
+                    </div>
+                    <div class="flex items-center gap-1">
+                      <button onClick=${()=>sub(it.id)} class="w-8 h-8 bg-white/10 rounded-full hover:bg-brand hover:text-black">−</button>
+                      <span class="w-6 text-center font-bold">${it.qty}</span>
+                      <button onClick=${()=>add(it.id)} class="w-8 h-8 bg-white/10 rounded-full hover:bg-brand hover:text-black">+</button>
+                    </div>
+                  </div>
+                `)}
+              </div>
+              <div class="p-6 border-t border-white/10 space-y-4">
+                <div class="flex justify-between display text-2xl"><span>TOTAL</span><span class="text-brand">$${total.toLocaleString('es-CL')}</span></div>
+                <div class="text-xs tracking-widest text-neutral-500">🏁 OBTIENES ${Math.floor(total/1000)} NÚMEROS PARA EL SORTEO</div>
+                <button onClick=${pay} class="w-full py-4 bg-brand text-black display tracking-widest text-lg rounded-full hover-glow">💳 PAGAR CON STRIPE</button>
+              </div>
+            `}
+          </${motion.div}>
+        </${motion.div}>
+      `}
+    </${AnimatePresence}>
+  `;
+}
+
+/* ============== ADMIN PANEL ============== */
+function Admin({ open, close }){
+  const [auth,setAuth] = useState(false);
+  const [pw,setPw] = useState('');
+  const [section,setSection] = useState('sorteos');
+  const [sorteos,setSorteos] = useState([
+    { id:1, title:'Viaje F1 Brasil 2026', prize:'2 personas a Interlagos', start:'2026-05-01', end:'2026-10-25', active:true }
+  ]);
+  const [stickersList,setStickersList] = useState(STICKERS);
+  const [participants] = useState([
+    { id:101, name:'Javier R.', email:'jr@mail.cl', numeros:5, fecha:'2026-04-01' },
+    { id:102, name:'María P.',  email:'mp@mail.cl', numeros:8, fecha:'2026-04-02' },
+    { id:103, name:'Cristóbal A.', email:'ca@mail.cl', numeros:3, fecha:'2026-04-03' },
+    { id:104, name:'Dani S.', email:'ds@mail.cl', numeros:12, fecha:'2026-04-04' },
+  ]);
+  const [pdfName,setPdfName] = useState('bases-f1-brasil-2026.pdf');
+
+  return html`
+    <${AnimatePresence}>
+      ${open && html`
+        <${motion.div} initial=${{opacity:0}} animate=${{opacity:1}} exit=${{opacity:0}}
+          class="fixed inset-0 z-[60] bg-black/95 backdrop-blur overflow-y-auto">
+          <div class="max-w-7xl mx-auto p-6 md:p-12">
+            <div class="flex items-center justify-between mb-10">
+              <div>
+                <div class="text-xs tracking-[0.4em] text-brand">// PANEL DE CONTROL</div>
+                <h2 class="display text-5xl md:text-7xl mt-2">ADMIN <span class="text-brand">CEP</span></h2>
+              </div>
+              <button onClick=${close} class="px-6 py-3 border border-white/20 rounded-full hover:border-brand display tracking-widest text-sm">CERRAR ✕</button>
+            </div>
+
+            ${!auth ? html`
+              <div class="max-w-md mx-auto mt-20 border border-white/10 rounded-3xl p-10 bg-white/5 backdrop-blur neon-border">
+                <div class="display text-3xl mb-6 text-center">ACCESO ADMINISTRADOR</div>
+                <input type="password" value=${pw} onChange=${e=>setPw(e.target.value)}
+                  placeholder="Password (demo: admin)"
+                  onKeyDown=${e=>e.key==='Enter' && pw==='admin' && setAuth(true)}
+                  class="w-full bg-black/40 border border-white/10 rounded-full px-5 py-3 outline-none focus:border-brand text-center"/>
+                <button onClick=${()=>pw==='admin'&&setAuth(true)}
+                  class="w-full mt-4 py-3 bg-brand text-black display tracking-widest rounded-full hover-glow">ENTRAR</button>
+                <div class="text-[10px] text-center text-neutral-600 mt-4 tracking-widest">DEMO · USA "admin" COMO PASSWORD</div>
+              </div>
+            ` : html`
+              <div class="grid md:grid-cols-12 gap-6">
+                <aside class="md:col-span-3 space-y-2">
+                  ${[
+                    ['sorteos','🏆 SORTEOS'],
+                    ['stickers','🎟️ STICKERS'],
+                    ['participantes','👥 PARTICIPANTES'],
+                    ['bases','📜 BASES PDF'],
+                    ['ruleta','🎲 EJECUTAR SORTEO'],
+                  ].map(([k,l])=>html`
+                    <button key=${k} onClick=${()=>setSection(k)}
+                      class=${"w-full text-left px-5 py-3 rounded-full border display tracking-widest text-sm "+(section===k?"bg-brand text-black border-brand":"border-white/10 hover:border-brand")}>
+                      ${l}
+                    </button>
+                  `)}
+                </aside>
+                <main class="md:col-span-9 border border-white/10 rounded-3xl p-8 bg-white/5 backdrop-blur min-h-[500px]">
+                  ${section==='sorteos' && html`
+                    <div>
+                      <div class="flex items-center justify-between mb-6">
+                        <div class="display text-3xl">SORTEOS ACTIVOS</div>
+                        <button onClick=${()=>setSorteos([...sorteos,{id:Date.now(),title:'Nuevo sorteo',prize:'',start:'',end:'',active:false}])}
+                          class="px-5 py-2 bg-brand text-black display tracking-widest text-sm rounded-full hover-glow">+ NUEVO</button>
+                      </div>
+                      <div class="space-y-4">
+                        ${sorteos.map((s,i)=>html`
+                          <div key=${s.id} class="border border-white/10 rounded-2xl p-5 bg-black/30 grid md:grid-cols-12 gap-3 items-center">
+                            <input value=${s.title} onChange=${e=>{const n=[...sorteos];n[i].title=e.target.value;setSorteos(n);}}
+                              class="md:col-span-4 bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand"/>
+                            <input value=${s.prize} onChange=${e=>{const n=[...sorteos];n[i].prize=e.target.value;setSorteos(n);}}
+                              placeholder="Premio"
+                              class="md:col-span-4 bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand"/>
+                            <input type="date" value=${s.end} onChange=${e=>{const n=[...sorteos];n[i].end=e.target.value;setSorteos(n);}}
+                              class="md:col-span-2 bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand text-xs"/>
+                            <label class="md:col-span-1 flex items-center gap-2 text-xs">
+                              <input type="checkbox" checked=${s.active} onChange=${e=>{const n=[...sorteos];n[i].active=e.target.checked;setSorteos(n);}}/>
+                              ON
+                            </label>
+                            <button onClick=${()=>setSorteos(sorteos.filter(x=>x.id!==s.id))} class="md:col-span-1 text-red-500 hover:text-red-400">✕</button>
+                          </div>
+                        `)}
+                      </div>
+                    </div>
+                  `}
+                  ${section==='stickers' && html`
+                    <div>
+                      <div class="flex items-center justify-between mb-6">
+                        <div class="display text-3xl">CATÁLOGO DE STICKERS</div>
+                        <button onClick=${()=>setStickersList([...stickersList,{id:Date.now(),name:'NUEVO STICKER',price:1000,emoji:'🆕',desc:''}])}
+                          class="px-5 py-2 bg-brand text-black display tracking-widest text-sm rounded-full hover-glow">+ AGREGAR</button>
+                      </div>
+                      <div class="space-y-3">
+                        ${stickersList.map((s,i)=>html`
+                          <div key=${s.id} class="border border-white/10 rounded-2xl p-4 bg-black/30 grid md:grid-cols-12 gap-3 items-center">
+                            <input value=${s.emoji} onChange=${e=>{const n=[...stickersList];n[i].emoji=e.target.value;setStickersList(n);}}
+                              class="md:col-span-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand text-center text-2xl"/>
+                            <input value=${s.name} onChange=${e=>{const n=[...stickersList];n[i].name=e.target.value;setStickersList(n);}}
+                              class="md:col-span-3 bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand"/>
+                            <input value=${s.desc} onChange=${e=>{const n=[...stickersList];n[i].desc=e.target.value;setStickersList(n);}}
+                              class="md:col-span-5 bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand text-sm"/>
+                            <input type="number" value=${s.price} onChange=${e=>{const n=[...stickersList];n[i].price=+e.target.value;setStickersList(n);}}
+                              class="md:col-span-2 bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand"/>
+                            <button onClick=${()=>setStickersList(stickersList.filter(x=>x.id!==s.id))} class="md:col-span-1 text-red-500 hover:text-red-400">✕</button>
+                          </div>
+                        `)}
+                      </div>
+                    </div>
+                  `}
+                  ${section==='participantes' && html`
+                    <div>
+                      <div class="flex items-center justify-between mb-6">
+                        <div class="display text-3xl">PARTICIPANTES</div>
+                        <button class="px-5 py-2 bg-brand text-black display tracking-widest text-sm rounded-full hover-glow">↓ EXPORT CSV</button>
+                      </div>
+                      <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                          <thead>
+                            <tr class="text-left text-neutral-500 text-xs tracking-widest border-b border-white/10">
+                              <th class="py-3">ID</th><th>NOMBRE</th><th>EMAIL</th><th>NÚMEROS</th><th>FECHA</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            ${participants.map(p=>html`
+                              <tr key=${p.id} class="border-b border-white/5 hover:bg-white/5">
+                                <td class="py-3">#${p.id}</td>
+                                <td class="font-semibold">${p.name}</td>
+                                <td class="text-neutral-400">${p.email}</td>
+                                <td><span class="bg-brand/20 text-brand px-2 py-0.5 rounded-full text-xs">${p.numeros} nº</span></td>
+                                <td class="text-neutral-500">${p.fecha}</td>
+                              </tr>
+                            `)}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  `}
+                  ${section==='bases' && html`
+                    <div>
+                      <div class="display text-3xl mb-6">BASES NOTARIALES (PDF)</div>
+                      <div class="border-2 border-dashed border-white/20 rounded-2xl p-12 text-center hover:border-brand transition">
+                        <div class="text-6xl mb-4">📄</div>
+                        <div class="display text-xl">${pdfName}</div>
+                        <div class="text-xs text-neutral-500 mt-2">Subido · 2.4 MB</div>
+                        <input type="file" accept="application/pdf" onChange=${e=>e.target.files[0]&&setPdfName(e.target.files[0].name)} class="hidden" id="pdfup"/>
+                        <label for="pdfup" class="inline-block mt-6 px-6 py-3 bg-brand text-black display tracking-widest rounded-full hover-glow cursor-none">REEMPLAZAR PDF</label>
+                      </div>
+                    </div>
+                  `}
+                  ${section==='ruleta' && html`
+                    <div class="text-center py-10">
+                      <div class="display text-3xl mb-6">EJECUTAR SORTEO</div>
+                      <div class="text-neutral-400 mb-8">Selecciona el sorteo y ejecuta la ruleta en vivo. La selección queda registrada con timestamp.</div>
+                      <select class="bg-black/40 border border-white/10 rounded-full px-5 py-3 outline-none focus:border-brand mb-6">
+                        ${sorteos.filter(s=>s.active).map(s=>html`<option key=${s.id}>${s.title}</option>`)}
+                      </select>
+                      <div><button class="px-12 py-5 bg-brand text-black display tracking-widest text-xl rounded-full hover-glow">🎲 EJECUTAR AHORA</button></div>
+                    </div>
+                  `}
+                </main>
+              </div>
+            `}
+          </div>
+        </${motion.div}>
+      `}
+    </${AnimatePresence}>
+  `;
+}
+
+/* ============== APP ============== */
+function App(){
+  const [tab,setTab] = useState('home');
+  const [cart,setCart] = useState({});
+  const [cartOpen,setCartOpen] = useState(false);
+  const [adminOpen,setAdminOpen] = useState(false);
+  const cartCount = Object.values(cart).reduce((a,b)=>a+b,0);
+  const add = id => setCart(c=>({...c,[id]:(c[id]||0)+1}));
+  const sub = id => setCart(c=>{ const n={...c}; n[id]=(n[id]||0)-1; if(n[id]<=0)delete n[id]; return n; });
+  const goto = t => { setTab(t); window.scrollTo({top:0,behavior:'instant'}); };
+
+  return html`
+    <${React.Fragment}>
+      <${Nav} tab=${tab} setTab=${goto} cartCount=${cartCount} openCart=${()=>setCartOpen(true)} openAdmin=${()=>setAdminOpen(true)}/>
+      ${tab==='home' && html`
+        <${React.Fragment}>
+          <${Hero} goto=${goto}/>
+          <${Marquee}/>
+          <${HorizontalGallery}/>
+          <${Sorteo} goto=${goto}/>
+        </${React.Fragment}>
+      `}
+      ${tab==='sorteo' && html`<div class="pt-24"><${Sorteo} goto=${goto}/></div>`}
+      ${tab==='stickers' && html`<div class="pt-24"><${Stickers} cart=${cart} add=${add} sub=${sub}/></div>`}
+      ${tab==='bases' && html`<div class="pt-24"><${Bases}/></div>`}
+      ${tab==='ruleta' && html`<div class="pt-24"><${Ruleta}/></div>`}
+
+      <footer class="border-t border-white/10 mt-20 py-10 text-center">
+        <div class="display text-2xl text-brand">CLAUDIO EN PISTA</div>
+        <div class="text-xs tracking-[0.3em] text-neutral-600 mt-2">© 2026 · DEMO PREMIUM · STRIPE SANDBOX</div>
+      </footer>
+
+      <${CartDrawer} open=${cartOpen} close=${()=>setCartOpen(false)} cart=${cart} add=${add} sub=${sub}/>
+      <${Admin} open=${adminOpen} close=${()=>setAdminOpen(false)}/>
+    </${React.Fragment}>
+  `;
+}
+
+createRoot(document.getElementById('root')).render(html`<${App}/>`);
+</script>
+</body>
+</html>
