@@ -800,7 +800,7 @@ function Admin({ open, close }){
     <${AnimatePresence}>
       ${open && html`
         <${motion.div} initial=${{opacity:0}} animate=${{opacity:1}} exit=${{opacity:0}}
-          data-lenis-prevent class="fixed inset-0 z-[60] bg-black/95 backdrop-blur overflow-y-auto" style="overscroll-behavior:contain;-webkit-overflow-scrolling:touch" onScroll=${(e)=>e.stopPropagation()}>
+          data-lenis-prevent class="fixed inset-0 z-[60] bg-black/95 backdrop-blur overflow-y-auto" style=${{overscrollBehavior:"contain",WebkitOverflowScrolling:"touch"}}>
           <div class="max-w-7xl mx-auto p-6 md:p-12">
             <div class="flex items-center justify-between mb-10">
               <div>
