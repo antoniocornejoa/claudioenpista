@@ -534,7 +534,7 @@ function HorizontalGallery({ goto }){
         </div>
         <div ref=${trackRef} class="h-track">
           ${items.map((it,i)=>html`
-            <div key=${i} onClick=${()=>goto('sorteo')} style="cursor:pointer" class="shrink-0 w-[420px] h-[420px] rounded-3xl border border-white/10 bg-gradient-to-br ${it.c} p-8 flex flex-col justify-between relative overflow-hidden hover-glow">
+            <div key=${i} onClick=${()=>goto('sorteo')} style=${{cursor:'pointer'}} class="shrink-0 w-[420px] h-[420px] rounded-3xl border border-white/10 bg-gradient-to-br ${it.c} p-8 flex flex-col justify-between relative overflow-hidden hover-glow">
               <div class="absolute inset-0 checker"></div>
               <div class="relative">
                 <div class="text-[10px] tracking-[0.4em] text-neutral-300">PREMIO · 0${i+1}</div>
@@ -800,7 +800,7 @@ function Admin({ open, close }){
     <${AnimatePresence}>
       ${open && html`
         <${motion.div} initial=${{opacity:0}} animate=${{opacity:1}} exit=${{opacity:0}}
-          data-lenis-prevent class="fixed inset-0 z-[60] bg-black/95 backdrop-blur overflow-y-auto" style=${{overscrollBehavior:"contain",WebkitOverflowScrolling:"touch"}}>
+          data-lenis-prevent class="fixed inset-0 z-[60] bg-black/95 backdrop-blur overflow-y-auto" style="overscroll-behavior:contain;-webkit-overflow-scrolling:touch" onScroll=${(e)=>e.stopPropagation()}>
           <div class="max-w-7xl mx-auto p-6 md:p-12">
             <div class="flex items-center justify-between mb-10">
               <div>
@@ -972,10 +972,10 @@ function App(){
           <${Sorteo} goto=${goto}/>
         </${React.Fragment}>
       `}
-      ${tab==='sorteo' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase" style="cursor:pointer"><span class="text-2xl">←</span> VOLVER A INICIO</button></div><${Sorteo} goto=${goto}/></div>`}
-      ${tab==='stickers' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase" style="cursor:pointer"><span class="text-2xl">←</span> VOLVER A INICIO</button></div><${Stickers} cart=${cart} add=${add} sub=${sub}/></div>`}
-      ${tab==='bases' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase" style="cursor:pointer"><span class="text-2xl">←</span> VOLVER A INICIO</button></div><${Bases}/></div>`}
-      ${tab==='ruleta' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase" style="cursor:pointer"><span class="text-2xl">←</span> VOLVER A INICIO</button></div><${Ruleta}/></div>`}
+      ${tab==='sorteo' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase" style=${{cursor:'pointer'}}><span class="text-2xl">←</span> VOLVER A INICIO</button></div><${Sorteo} goto=${goto}/></div>`}
+      ${tab==='stickers' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase" style=${{cursor:'pointer'}}><span class="text-2xl">←</span> VOLVER A INICIO</button></div><${Stickers} cart=${cart} add=${add} sub=${sub}/></div>`}
+      ${tab==='bases' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase" style=${{cursor:'pointer'}}><span class="text-2xl">←</span> VOLVER A INICIO</button></div><${Bases}/></div>`}
+      ${tab==='ruleta' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase" style=${{cursor:'pointer'}}><span class="text-2xl">←</span> VOLVER A INICIO</button></div><${Ruleta}/></div>`}
 
       <footer class="border-t border-white/10 mt-20 py-10 text-center">
         <div class="display text-2xl text-brand">CLAUDIO EN PISTA</div>
