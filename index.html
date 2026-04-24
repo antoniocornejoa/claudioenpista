@@ -960,7 +960,7 @@ function App(){
   const cartCount = Object.values(cart).reduce((a,b)=>a+b,0);
   const add = id => setCart(c=>({...c,[id]:(c[id]||0)+1}));
   const sub = id => setCart(c=>{ const n={...c}; n[id]=(n[id]||0)-1; if(n[id]<=0)delete n[id]; return n; });
-  const goto = t => { setTab(t); window.scrollTo({top:0,behavior:'instant'}); };
+  const goto = t => { ScrollTrigger.getAll().forEach(st=>st.kill()); lenis.stop(); setTab(t); setTimeout(()=>{window.scrollTo({top:0,behavior:'instant'});lenis.start();},50); };
 
   return html`
     <${React.Fragment}>
