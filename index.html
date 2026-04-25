@@ -730,10 +730,13 @@ function Ruleta(){
   `;
 }
 
-function CartDrawer({ open, close, cart, add, sub }){
+function CartDrawer({ open, close, cart, add, sub, stickersList }){
   const [stage,setStage] = useState('idle');
-  const items = Object.entries(cart).map(([id,q])=>({...STICKERS.find(s=>s.id===+id),qty:q}));
-  const total = items.reduce((a,b)=>a+b.price*b.qty,0);
+  const source = stickersList && stickersList.length ? stickersList : STICKERS;
+  const items = Object.entries(cart)
+    .map(([id,q])=>{ const s = source.find(x=>x.id===+id); return s ? {...s, qty:q} : null; })
+    .filter(Boolean);
+  const total = items.reduce((a,b)=>a+(b.price||0)*b.qty,0);
   function pay(){ setStage('pay'); setTimeout(()=>setStage('done'),2200); }
   function reset(){ setStage('idle'); close(); Object.keys(cart).forEach(k=>sub(+k)); }
   return html`
@@ -1073,7 +1076,7 @@ function App(){
         <div class="text-xs tracking-[0.3em] text-neutral-600 mt-2">© 2026 · DEMO PREMIUM · STRIPE SANDBOX</div>
       </footer>
 
-      <${CartDrawer} open=${cartOpen} close=${()=>setCartOpen(false)} cart=${cart} add=${add} sub=${sub}/>
+      <${CartDrawer} open=${cartOpen} close=${()=>setCartOpen(false)} cart=${cart} add=${add} sub=${sub} stickersList=${stickersList}/>
       <${Admin} open=${adminOpen} close=${()=>setAdminOpen(false)} sorteos=${sorteos} setSorteos=${setSorteos} stickersList=${stickersList} setStickersList=${setStickersList}/>
     </${React.Fragment}>
   `;
