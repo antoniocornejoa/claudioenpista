@@ -163,6 +163,7 @@ const dbToSticker = (s) => ({
   desc: s.description || '',
   price: s.price,
   emoji: s.emoji || '',
+  imageUrl: s.image_url || '',
   sorteoId: s.sorteo_id,
   position: s.position || 0,
   active: !!s.active
@@ -172,10 +173,31 @@ const stickerToDb = (s) => ({
   description: s.desc || '',
   price: +s.price || 0,
   emoji: s.emoji || '',
+  image_url: s.imageUrl || null,
   sorteo_id: s.sorteoId || null,
   position: s.position || 0,
   active: s.active !== false
 });
+
+// Upload de imagen de sticker a Supabase Storage. Devuelve la public URL.
+async function dbUploadStickerImage(file, stickerId){
+  if (!file) throw new Error('no file');
+  const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const path = `${stickerId || 'tmp'}/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
+  const { error: upErr } = await sb.storage.from('stickers').upload(path, file, {
+    cacheControl: '3600', upsert: false, contentType: file.type || 'image/png'
+  });
+  if (upErr) throw upErr;
+  const { data } = sb.storage.from('stickers').getPublicUrl(path);
+  return data.publicUrl;
+}
+async function dbDeleteStickerImage(url){
+  // url tipo https://xxx.supabase.co/storage/v1/object/public/stickers/{path}
+  if (!url) return;
+  const m = url.match(/\/storage\/v1\/object\/public\/stickers\/(.+)$/);
+  if (!m) return;
+  await sb.storage.from('stickers').remove([m[1]]);
+}
 
 async function dbFetchSorteos(){
   const { data, error } = await sb.from('sorteos').select('*').order('id', { ascending: true });
@@ -679,9 +701,13 @@ function StickerCard({ s, qty, add, sub }){
   const ref = useTilt();
   return html`
     <div ref=${ref} class="tilt rounded-3xl border border-white/10 bg-gradient-to-b from-white/5 to-transparent p-6 hover-glow">
-      <div class="aspect-square rounded-2xl bg-gradient-to-br from-brand/30 via-black to-black flex items-center justify-center text-8xl mb-5 relative overflow-hidden">
+      <div class="aspect-square rounded-2xl bg-gradient-to-br from-brand/30 via-black to-black flex items-center justify-center mb-5 relative overflow-hidden">
         <div class="absolute inset-0 checker"></div>
-        <div class="relative">${s.emoji}</div>
+        ${s.imageUrl ? html`
+          <img src=${s.imageUrl} alt=${s.name} class="relative w-full h-full object-cover"/>
+        ` : html`
+          <div class="relative text-8xl">${s.emoji}</div>
+        `}
       </div>
       <div class="display text-2xl tracking-wide">${s.name}</div>
       <div class="text-sm text-neutral-500 mt-1">${s.desc}</div>
@@ -966,7 +992,9 @@ function CartDrawer({ open, close, cart, add, sub, stickersList }){
               <div class="p-6 space-y-3">
                 ${items.map(it=>html`
                   <div key=${it.id} class="flex items-center gap-4 bg-white/5 border border-white/10 rounded-2xl p-4">
-                    <div class="text-4xl">${it.emoji}</div>
+                    <div class="w-14 h-14 rounded-xl bg-gradient-to-br from-brand/20 via-black to-black border border-white/10 flex items-center justify-center overflow-hidden shrink-0">
+                      ${it.imageUrl ? html`<img src=${it.imageUrl} alt=${it.name} class="w-full h-full object-cover"/>` : html`<div class="text-3xl">${it.emoji}</div>`}
+                    </div>
                     <div class="flex-1">
                       <div class="display tracking-wide">${it.name}</div>
                       <div class="text-brand display">$${it.price.toLocaleString('es-CL')}</div>
@@ -1213,7 +1241,7 @@ function Admin({ open, close, sorteos, stickersList,
                   `}
                   ${section==='stickers' && html`
                     <div>
-                      <div class="flex items-center justify-between mb-6">
+                      <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
                         <div>
                           <div class="display text-3xl">CATÁLOGO DE STICKERS</div>
                           <div class="text-[10px] text-neutral-500 tracking-widest">${dbReady?'✓ SINCRONIZADO CON DB':'⚠ MODO LOCAL'}</div>
@@ -1223,24 +1251,72 @@ function Admin({ open, close, sorteos, stickersList,
                           <button onClick=${addSticker} class="px-5 py-2 bg-brand text-black display tracking-widest text-sm rounded-full hover-glow">+ AGREGAR</button>
                         </div>
                       </div>
-                      <div class="space-y-3">
+                      <div class="space-y-4">
                         ${stickersList.map((s,i)=>html`
-                          <div key=${s.id} class="border border-white/10 rounded-2xl p-4 bg-black/30 grid md:grid-cols-12 gap-3 items-center">
-                            <input value=${s.emoji} onChange=${e=>patchStickerLocal(i,{emoji:e.target.value})}
-                              class="md:col-span-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand text-center text-2xl"/>
-                            <input value=${s.name} onChange=${e=>patchStickerLocal(i,{name:e.target.value})}
-                              class="md:col-span-3 bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand"/>
-                            <input value=${s.desc} onChange=${e=>patchStickerLocal(i,{desc:e.target.value})}
-                              class="md:col-span-3 bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand text-sm"/>
-                            <input type="number" value=${s.price} onChange=${e=>patchStickerLocal(i,{price:+e.target.value})}
-                              class="md:col-span-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand"/>
-                            <select value=${s.sorteoId||''} onChange=${e=>patchStickerLocal(i,{sorteoId:+e.target.value||null})} class="md:col-span-1 bg-black/40 border border-white/10 rounded-lg px-1 py-2 outline-none focus:border-brand text-[10px]"><option value="">---</option>${sorteos.map(so=>html`<option key=${so.id} value=${so.id}>${so.title.substring(0,12)}</option>`)}</select>
-                            <button onClick=${()=>saveStickerAt(i)} class="md:col-span-2 px-2 py-2 rounded-lg text-xs border border-brand bg-brand/10 text-brand hover:bg-brand hover:text-black">💾 GUARDAR</button>
-                            <button onClick=${()=>{ if(confirm('¿Borrar el sticker "'+s.name+'"?')) deleteStickerById(s.id); }} class="md:col-span-1 text-red-500 hover:text-red-400">✕</button>
+                          <div key=${s.id} class="border border-white/10 rounded-2xl p-5 bg-black/30">
+                            <div class="flex flex-col md:flex-row gap-4">
+                              <!-- columna imagen -->
+                              <div class="flex flex-col items-center gap-2 md:w-32 shrink-0">
+                                <label class="relative w-28 h-28 rounded-2xl bg-gradient-to-br from-brand/20 via-black to-black border border-white/10 flex items-center justify-center cursor-pointer hover:border-brand transition overflow-hidden group">
+                                  ${s.imageUrl ? html`
+                                    <img src=${s.imageUrl} alt=${s.name} class="w-full h-full object-cover"/>
+                                  ` : html`
+                                    <div class="text-5xl">${s.emoji||'🆕'}</div>
+                                  `}
+                                  <div class="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-[10px] tracking-widest text-brand">📷 SUBIR</div>
+                                  <input type="file" accept="image/*" class="hidden" onChange=${async (e)=>{
+                                    const f = e.target.files?.[0]; if (!f) return;
+                                    if (f.size > 5242880) { alert('Imagen mayor a 5MB. Comprimila y reintentá.'); return; }
+                                    try {
+                                      const url = await dbUploadStickerImage(f, s.id);
+                                      // borrar imagen vieja del bucket (si era nuestra)
+                                      if (s.imageUrl) await dbDeleteStickerImage(s.imageUrl).catch(()=>{});
+                                      patchStickerLocal(i, { imageUrl: url });
+                                      // auto-save al subir
+                                      const saved = await dbUpsertSticker({ ...s, imageUrl: url });
+                                      patchStickerLocal(i, saved);
+                                    } catch(err) { alert('Error subiendo imagen: '+err.message); }
+                                  }}/>
+                                </label>
+                                ${s.imageUrl && html`<button onClick=${async()=>{ if(confirm('¿Quitar imagen?')){ await dbDeleteStickerImage(s.imageUrl).catch(()=>{}); patchStickerLocal(i,{imageUrl:''}); await dbUpsertSticker({...s,imageUrl:''}).catch(()=>{}); } }} class="text-[10px] text-red-400 hover:underline">quitar imagen</button>`}
+                                <input value=${s.emoji} onChange=${e=>patchStickerLocal(i,{emoji:e.target.value})} placeholder="emoji"
+                                  class="w-16 bg-black/40 border border-white/10 rounded-lg px-2 py-1 outline-none focus:border-brand text-center text-lg" maxlength="4"/>
+                                <div class="text-[9px] text-neutral-600 tracking-widest text-center">EMOJI<br/>FALLBACK</div>
+                              </div>
+                              <!-- columna campos -->
+                              <div class="flex-1 grid grid-cols-1 md:grid-cols-12 gap-3">
+                                <div class="md:col-span-12">
+                                  <div class="text-[10px] text-neutral-500 tracking-widest mb-1">NOMBRE</div>
+                                  <input value=${s.name} onChange=${e=>patchStickerLocal(i,{name:e.target.value})}
+                                    class="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2 outline-none focus:border-brand"/>
+                                </div>
+                                <div class="md:col-span-12">
+                                  <div class="text-[10px] text-neutral-500 tracking-widest mb-1">DESCRIPCIÓN</div>
+                                  <textarea value=${s.desc} onChange=${e=>patchStickerLocal(i,{desc:e.target.value})} rows="2"
+                                    class="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2 outline-none focus:border-brand text-sm resize-none"></textarea>
+                                </div>
+                                <div class="md:col-span-3">
+                                  <div class="text-[10px] text-neutral-500 tracking-widest mb-1">PRECIO CLP</div>
+                                  <input type="number" value=${s.price} onChange=${e=>patchStickerLocal(i,{price:+e.target.value})}
+                                    class="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2 outline-none focus:border-brand"/>
+                                </div>
+                                <div class="md:col-span-5">
+                                  <div class="text-[10px] text-neutral-500 tracking-widest mb-1">SORTEO ASOCIADO</div>
+                                  <select value=${s.sorteoId||''} onChange=${e=>patchStickerLocal(i,{sorteoId:+e.target.value||null})} class="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand text-sm">
+                                    <option value="">— sin sorteo —</option>
+                                    ${sorteos.map(so=>html`<option key=${so.id} value=${so.id}>${so.title}</option>`)}
+                                  </select>
+                                </div>
+                                <div class="md:col-span-4 flex items-end gap-2">
+                                  <button onClick=${()=>saveStickerAt(i)} class="flex-1 py-2 rounded-lg text-xs border border-brand bg-brand/10 text-brand hover:bg-brand hover:text-black tracking-widest display">💾 GUARDAR</button>
+                                  <button onClick=${()=>{ if(confirm('¿Borrar el sticker "'+s.name+'"? Se marca como inactivo.')) deleteStickerById(s.id); }} class="px-4 py-2 rounded-lg text-red-500 hover:text-red-400 hover:bg-red-900/20 border border-red-900/40">✕</button>
+                                </div>
+                              </div>
+                            </div>
                           </div>
                         `)}
                       </div>
-                      <div class="text-[10px] text-neutral-500 tracking-widest mt-4">💡 Borrar marca el sticker como inactivo (soft delete) para preservar histórico de compras pasadas.</div>
+                      <div class="text-[10px] text-neutral-500 tracking-widest mt-4">💡 Click en la imagen para subir una nueva. Formato: PNG, JPG, WEBP, GIF, SVG · máx 5MB. Borrar marca el sticker como inactivo (soft delete) para preservar histórico de compras pasadas.</div>
                     </div>
                   `}
                   ${section==='participantes' && html`
