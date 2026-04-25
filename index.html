@@ -240,6 +240,11 @@ async function dbCurrentAdmin(){
   const { data: adm } = await sb.from('admins').select('user_id').eq('user_id', user.id).maybeSingle();
   return adm ? user : null;
 }
+async function dbFetchComprasAdmin(){
+  const { data, error } = await sb.from('v_compras_admin').select('*').order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
 
 /* loader handled in non-module script above */
 
@@ -846,18 +851,31 @@ function Ruleta(){
   `;
 }
 
-// Validador de RUT chileno con digito verificador
-function validateRUT(rut){
-  if (!rut) return true; // opcional
-  const clean = String(rut).replace(/[^0-9kK]/g,'').toUpperCase();
-  if (clean.length < 2) return false;
-  const body = clean.slice(0,-1), dv = clean.slice(-1);
-  if (!/^\d+$/.test(body)) return false;
+// ===== RUT chileno: formato automatico y validacion del digito verificador =====
+function rutCleanRaw(s){ return String(s||'').replace(/[^0-9kK]/g,'').toUpperCase(); }
+function rutFormat(s){
+  // Acepta input raw o ya formateado, devuelve "12.345.678-9"
+  const c = rutCleanRaw(s);
+  if (c.length === 0) return '';
+  if (c.length === 1) return c; // a un solo char no agregamos guion todavia
+  const body = c.slice(0,-1);
+  const dv = c.slice(-1);
+  // miles cada 3 desde la derecha
+  const bodyDot = body.replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+  return `${bodyDot}-${dv}`;
+}
+function rutCalculateDV(body){
   let sum = 0, mul = 2;
   for (let i = body.length-1; i >= 0; i--){ sum += parseInt(body[i],10)*mul; mul = mul===7?2:mul+1; }
   const r = 11 - (sum % 11);
-  const expected = r===11?'0':r===10?'K':String(r);
-  return dv === expected;
+  return r === 11 ? '0' : r === 10 ? 'K' : String(r);
+}
+function validateRUT(rut){
+  const clean = rutCleanRaw(rut);
+  if (clean.length < 8 || clean.length > 9) return false; // RUT chileno: 7-8 digits + DV
+  const body = clean.slice(0,-1), dv = clean.slice(-1);
+  if (!/^\d+$/.test(body)) return false;
+  return dv === rutCalculateDV(body);
 }
 
 function CartDrawer({ open, close, cart, add, sub, stickersList }){
@@ -875,7 +893,8 @@ function CartDrawer({ open, close, cart, add, sub, stickersList }){
     setErrMsg('');
     if (!form.name.trim()) return setErrMsg('Ingresá tu nombre');
     if (!/\S+@\S+\.\S+/.test(form.email)) return setErrMsg('Email inválido');
-    if (form.rut && !validateRUT(form.rut)) return setErrMsg('RUT inválido (revisá dígito verificador)');
+    if (!form.rut.trim()) return setErrMsg('El RUT es obligatorio');
+    if (!validateRUT(form.rut)) return setErrMsg('RUT inválido — revisá el dígito verificador');
     setStage('redirecting');
     try {
       const payload = {
@@ -927,9 +946,9 @@ function CartDrawer({ open, close, cart, add, sub, stickersList }){
                 <input type="email" value=${form.email} onChange=${e=>setForm(f=>({...f,email:e.target.value}))}
                   placeholder="Email *"
                   class="w-full bg-black/40 border border-white/10 rounded-full px-5 py-3 outline-none focus:border-brand"/>
-                <input value=${form.rut} onChange=${e=>setForm(f=>({...f,rut:e.target.value}))}
-                  placeholder="RUT (opcional, formato 12.345.678-9)"
-                  class="w-full bg-black/40 border border-white/10 rounded-full px-5 py-3 outline-none focus:border-brand"/>
+                <input value=${form.rut} onChange=${e=>setForm(f=>({...f,rut:rutFormat(e.target.value)}))}
+                  placeholder="RUT * (12.345.678-9)" maxlength="12"
+                  class=${"w-full bg-black/40 border rounded-full px-5 py-3 outline-none focus:border-brand "+(form.rut && !validateRUT(form.rut)?'border-red-500':'border-white/10')}/>
                 <input value=${form.phone} onChange=${e=>setForm(f=>({...f,phone:e.target.value}))}
                   placeholder="Teléfono (opcional)"
                   class="w-full bg-black/40 border border-white/10 rounded-full px-5 py-3 outline-none focus:border-brand"/>
@@ -988,6 +1007,9 @@ function Admin({ open, close, sorteos, stickersList,
   const [editPanel,setEditPanel] = useState(null); // {idx, type:'prizes'|'hero'|'bases'}
   const isPanel = (i,t) => editPanel && editPanel.idx===i && editPanel.type===t;
   const togglePanel = (i,t) => setEditPanel(isPanel(i,t) ? null : {idx:i, type:t});
+  const [compras,setCompras] = useState([]);
+  const [comprasBusy,setComprasBusy] = useState(false);
+  const [comprasFilter,setComprasFilter] = useState('all'); // all|paid|pending|failed
 
   // verificar sesion al abrir
   useEffect(()=>{
@@ -997,6 +1019,30 @@ function Admin({ open, close, sorteos, stickersList,
       setUser(u);
     })();
   }, [open]);
+
+  // cargar compras al entrar a la seccion participantes
+  useEffect(()=>{
+    if (!user || section !== 'participantes') return;
+    setComprasBusy(true);
+    dbFetchComprasAdmin().then(d => setCompras(d)).catch(e=>alert('Error cargando compras: '+e.message)).finally(()=>setComprasBusy(false));
+  }, [user, section]);
+
+  function exportComprasCSV(){
+    const rows = [['compra_id','fecha','nombre','email','rut','telefono','sorteo','monto_clp','status','numeros'].join(',')];
+    for (const c of compras){
+      const row = [
+        c.compra_id, c.created_at, c.name||'', c.email||'', c.rut||'', c.phone||'',
+        (c.sorteo_title||'').replace(/,/g,';'), c.monto_total||0, c.status||'',
+        '"'+((c.numeros||[]).map(n=>String(n).padStart(5,'0')).join(' '))+'"'
+      ];
+      rows.push(row.join(','));
+    }
+    const blob = new Blob([rows.join('\n')], {type:'text/csv;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `compras-${new Date().toISOString().slice(0,10)}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  }
 
   async function handleSignIn(){
     setAuthBusy(true); setAuthMsg('');
@@ -1033,12 +1079,6 @@ function Admin({ open, close, sorteos, stickersList,
     list.splice(subIdx, 1);
     patchSorteoLocal(idx, { [listKey]: list });
   }
-  const [participants] = useState([
-    { id:101, name:'Javier R.', email:'jr@mail.cl', numeros:5, fecha:'2026-04-01' },
-    { id:102, name:'María P.',  email:'mp@mail.cl', numeros:8, fecha:'2026-04-02' },
-    { id:103, name:'Cristóbal A.', email:'ca@mail.cl', numeros:3, fecha:'2026-04-03' },
-    { id:104, name:'Dani S.', email:'ds@mail.cl', numeros:12, fecha:'2026-04-04' },
-  ]);
   const [pdfName,setPdfName] = useState('bases-f1-brasil-2026.pdf');
 
   return html`
@@ -1209,30 +1249,59 @@ function Admin({ open, close, sorteos, stickersList,
                   `}
                   ${section==='participantes' && html`
                     <div>
-                      <div class="flex items-center justify-between mb-6">
-                        <div class="display text-3xl">PARTICIPANTES</div>
-                        <button class="px-5 py-2 bg-brand text-black display tracking-widest text-sm rounded-full hover-glow">↓ EXPORT CSV</button>
+                      <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+                        <div>
+                          <div class="display text-3xl">COMPRAS / PARTICIPANTES</div>
+                          <div class="text-[10px] text-neutral-500 tracking-widest">${compras.length} REGISTROS · ${compras.filter(c=>c.status==='paid').length} PAGADAS · ${compras.filter(c=>c.status==='pending').length} PENDIENTES · ${compras.filter(c=>c.status==='failed').length} FALLIDAS</div>
+                        </div>
+                        <div class="flex gap-2 flex-wrap">
+                          <select value=${comprasFilter} onChange=${e=>setComprasFilter(e.target.value)} class="bg-black/40 border border-white/10 rounded-full px-4 py-2 text-xs outline-none focus:border-brand">
+                            <option value="all">Todas</option>
+                            <option value="paid">Pagadas</option>
+                            <option value="pending">Pendientes</option>
+                            <option value="failed">Fallidas</option>
+                          </select>
+                          <button onClick=${()=>{ setComprasBusy(true); dbFetchComprasAdmin().then(d=>setCompras(d)).catch(e=>alert(e.message)).finally(()=>setComprasBusy(false)); }} class="px-3 py-2 border border-white/20 rounded-full text-xs tracking-widest hover:border-brand">↻ RECARGAR</button>
+                          <button onClick=${exportComprasCSV} class="px-5 py-2 bg-brand text-black display tracking-widest text-sm rounded-full hover-glow">↓ EXPORT CSV</button>
+                        </div>
                       </div>
-                      <div class="overflow-x-auto">
-                        <table class="w-full text-sm">
-                          <thead>
-                            <tr class="text-left text-neutral-500 text-xs tracking-widest border-b border-white/10">
-                              <th class="py-3">ID</th><th>NOMBRE</th><th>EMAIL</th><th>NÚMEROS</th><th>FECHA</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            ${participants.map(p=>html`
-                              <tr key=${p.id} class="border-b border-white/5 hover:bg-white/5">
-                                <td class="py-3">#${p.id}</td>
-                                <td class="font-semibold">${p.name}</td>
-                                <td class="text-neutral-400">${p.email}</td>
-                                <td><span class="bg-brand/20 text-brand px-2 py-0.5 rounded-full text-xs">${p.numeros} nº</span></td>
-                                <td class="text-neutral-500">${p.fecha}</td>
+                      ${comprasBusy ? html`<div class="text-center py-12 text-neutral-500">Cargando...</div>` : html`
+                        <div class="overflow-x-auto">
+                          <table class="w-full text-sm">
+                            <thead>
+                              <tr class="text-left text-neutral-500 text-[10px] tracking-widest border-b border-white/10">
+                                <th class="py-3">#</th><th>FECHA</th><th>NOMBRE</th><th>EMAIL</th><th>RUT</th><th>SORTEO</th><th>MONTO</th><th>STATUS</th><th>NÚMEROS</th>
                               </tr>
-                            `)}
-                          </tbody>
-                        </table>
-                      </div>
+                            </thead>
+                            <tbody>
+                              ${compras.filter(c=>comprasFilter==='all'||c.status===comprasFilter).map(c=>html`
+                                <tr key=${c.compra_id} class="border-b border-white/5 hover:bg-white/5 align-top">
+                                  <td class="py-3 font-mono text-neutral-500">#${c.compra_id}</td>
+                                  <td class="text-neutral-500 text-xs">${new Date(c.created_at).toLocaleString('es-CL')}</td>
+                                  <td class="font-semibold">${c.name||'—'}</td>
+                                  <td class="text-neutral-400 text-xs">${c.email||'—'}</td>
+                                  <td class="text-neutral-400 font-mono text-xs">${c.rut||'—'}</td>
+                                  <td class="text-neutral-400 text-xs">${(c.sorteo_title||'').substring(0,20)}</td>
+                                  <td class="text-brand font-mono">$${(c.monto_total||0).toLocaleString('es-CL')}</td>
+                                  <td>
+                                    ${c.status==='paid' ? html`<span class="bg-green-900/40 text-green-400 px-2 py-0.5 rounded-full text-[10px] tracking-widest">PAID</span>`
+                                    : c.status==='pending' ? html`<span class="bg-yellow-900/40 text-yellow-400 px-2 py-0.5 rounded-full text-[10px] tracking-widest">PENDING</span>`
+                                    : html`<span class="bg-red-900/40 text-red-400 px-2 py-0.5 rounded-full text-[10px] tracking-widest">FAILED</span>`}
+                                  </td>
+                                  <td class="max-w-[280px]">
+                                    ${(c.numeros||[]).length === 0 ? html`<span class="text-neutral-600">—</span>` : html`
+                                      <div class="flex flex-wrap gap-1">
+                                        ${(c.numeros||[]).map(n => html`<span key=${n} class="bg-brand/20 text-brand px-2 py-0.5 rounded-full text-[10px] font-mono">${String(n).padStart(5,'0')}</span>`)}
+                                      </div>
+                                    `}
+                                  </td>
+                                </tr>
+                              `)}
+                              ${compras.length === 0 && html`<tr><td colspan="9" class="py-12 text-center text-neutral-500">Aún no hay compras registradas.</td></tr>`}
+                            </tbody>
+                          </table>
+                        </div>
+                      `}
                     </div>
                   `}
                   ${section==='bases' && html`
