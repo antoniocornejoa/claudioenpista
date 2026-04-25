@@ -134,6 +134,8 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, storageKey: 'cep:auth' }
 });
 
+const DEFAULT_PACKS_PRICING = { packs:[{n:1,price:3000},{n:2,price:5000},{n:5,price:10000}], extra_price:3000 };
+
 const dbToSorteo = (s) => ({
   id: s.id,
   title: s.title,
@@ -144,7 +146,8 @@ const dbToSorteo = (s) => ({
   status: s.status || 'activo',
   heroCards: Array.isArray(s.hero_cards) ? s.hero_cards : [],
   prizes:    Array.isArray(s.prizes)     ? s.prizes : [],
-  bases:     Array.isArray(s.bases)      ? s.bases : []
+  bases:     Array.isArray(s.bases)      ? s.bases : [],
+  packsPricing: s.packs_pricing && s.packs_pricing.packs ? s.packs_pricing : DEFAULT_PACKS_PRICING
 });
 const sorteoToDb = (s) => ({
   title: s.title,
@@ -155,7 +158,8 @@ const sorteoToDb = (s) => ({
   status: s.status || 'activo',
   hero_cards: s.heroCards || [],
   prizes: s.prizes || [],
-  bases: s.bases || []
+  bases: s.bases || [],
+  packs_pricing: s.packsPricing || DEFAULT_PACKS_PRICING
 });
 const dbToSticker = (s) => ({
   id: s.id,
@@ -266,6 +270,26 @@ async function dbFetchComprasAdmin(){
   const { data, error } = await sb.from('v_compras_admin').select('*').order('created_at', { ascending: false });
   if (error) throw error;
   return data || [];
+}
+
+// ===== Calculo de precio por packs (programacion dinamica) =====
+// Mismo algoritmo que la funcion SQL calc_pack_price (DP, optimal pack combination).
+function calcPackPrice(qty, config){
+  if (!qty || qty <= 0) return 0;
+  const cfg = config && config.packs ? config : DEFAULT_PACKS_PRICING;
+  const packs = cfg.packs || [];
+  const extra = cfg.extra_price || 3000;
+  const dp = new Array(qty + 1).fill(Infinity);
+  dp[0] = 0;
+  for (let n = 1; n <= qty; n++){
+    if (dp[n-1] !== Infinity) dp[n] = Math.min(dp[n], dp[n-1] + extra);
+    for (const p of packs){
+      if (p.n <= n && dp[n-p.n] !== Infinity){
+        dp[n] = Math.min(dp[n], dp[n-p.n] + p.price);
+      }
+    }
+  }
+  return dp[qty] === Infinity ? qty * (cfg.extra_price||3000) : dp[qty];
 }
 
 /* loader handled in non-module script above */
@@ -697,67 +721,115 @@ function HorizontalGallery({ goto, heroCards }){
   `;
 }
 
-function StickerCard({ s, qty, add, sub }){
+function StickerCard({ s, selected, toggle }){
   const ref = useTilt();
   return html`
-    <div ref=${ref} class="tilt rounded-3xl border border-white/10 bg-gradient-to-b from-white/5 to-transparent p-6 hover-glow">
-      <div class="aspect-square rounded-2xl bg-gradient-to-br from-brand/30 via-black to-black flex items-center justify-center mb-5 relative overflow-hidden">
+    <div ref=${ref} onClick=${()=>toggle(s.id)}
+         class=${"tilt rounded-3xl border-2 p-3 cursor-pointer transition-all relative "+(selected?'border-brand bg-brand/10 hover-glow shadow-[0_0_30px_rgba(255,106,0,0.4)]':'border-white/10 bg-white/5 hover:border-white/30')}>
+      <div class="aspect-square rounded-2xl bg-gradient-to-br from-brand/20 via-black to-black flex items-center justify-center relative overflow-hidden">
         <div class="absolute inset-0 checker"></div>
         ${s.imageUrl ? html`
           <img src=${s.imageUrl} alt=${s.name} class="relative w-full h-full object-cover"/>
         ` : html`
-          <div class="relative text-8xl">${s.emoji}</div>
+          <div class="relative text-7xl">${s.emoji}</div>
+        `}
+        ${selected && html`
+          <div class="absolute top-3 right-3 w-9 h-9 rounded-full bg-brand text-black flex items-center justify-center shadow-lg">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </div>
         `}
       </div>
-      <div class="display text-2xl tracking-wide">${s.name}</div>
-      <div class="text-sm text-neutral-500 mt-1">${s.desc}</div>
-      <div class="flex items-center justify-between mt-5">
-        <div class="display text-3xl text-brand">$${s.price.toLocaleString('es-CL')}</div>
-        ${qty>0 ? html`
-          <div class="flex items-center gap-2 bg-white/5 border border-white/10 rounded-full px-2 py-1">
-            <button onClick=${()=>sub(s.id)} class="w-7 h-7 rounded-full bg-white/10 hover:bg-brand hover:text-black">−</button>
-            <span class="font-bold w-6 text-center">${qty}</span>
-            <button onClick=${()=>add(s.id)} class="w-7 h-7 rounded-full bg-white/10 hover:bg-brand hover:text-black">+</button>
-          </div>
-        ` : html`
-          <button onClick=${()=>add(s.id)} class="px-5 py-2 rounded-full bg-brand text-black display tracking-widest text-sm hover-glow">+ ADD</button>
-        `}
+      <div class="px-2 pt-3 pb-1">
+        <div class="display text-base tracking-wide truncate">${s.name}</div>
+        ${s.desc && html`<div class="text-[11px] text-neutral-500 truncate">${s.desc}</div>`}
       </div>
     </div>
   `;
 }
 
-function Stickers({ cart, add, sub, stickersList, activeSorteo }){
+function Stickers({ cart, toggle, openCart, stickersList, activeSorteo }){
   const all = stickersList && stickersList.length ? stickersList : STICKERS;
-  // si hay sorteo activo, mostrar solo stickers vinculados a \u00e9l (o sin v\u00ednculo, como fallback)
   const visible = activeSorteo
     ? all.filter(s => !s.sorteoId || s.sorteoId === activeSorteo.id)
     : all;
+  const packsCfg = (activeSorteo && activeSorteo.packsPricing) || DEFAULT_PACKS_PRICING;
+  const selectedIds = Object.keys(cart).map(k=>+k).filter(id => cart[id]);
+  const qty = selectedIds.length;
+  const total = calcPackPrice(qty, packsCfg);
+  const numeros = Math.floor(total / 1000);
   const subtitle = activeSorteo
-    ? `Cada $1.000 = 1 n\u00famero para el sorteo ${activeSorteo.title}. Stock limitado. Env\u00edo a todo Chile.`
-    : 'Cada $1.000 = 1 n\u00famero para el sorteo. Stock limitado. Env\u00edo a todo Chile.';
+    ? `Selecciona los dise\u00f1os que m\u00e1s te gustan. Cada $1.000 = 1 n\u00famero para ${activeSorteo.title}.`
+    : 'Selecciona los dise\u00f1os que m\u00e1s te gustan.';
   return html`
-    <section class="px-6 py-32 relative">
+    <section class="px-6 pt-32 pb-40 relative">
       <div class="max-w-7xl mx-auto">
         <${motion.div}
           initial=${{opacity:0,y:40}} whileInView=${{opacity:1,y:0}} viewport=${{once:true}} transition=${{duration:.8}}
-          class="mb-16 flex items-end justify-between flex-wrap gap-6">
+          class="mb-12 flex items-end justify-between flex-wrap gap-6">
           <div>
             <div class="text-xs tracking-[0.4em] text-brand mb-3">// TIENDA OFICIAL</div>
-            <h2 class="display text-7xl md:text-9xl leading-none">STICKERS<br/><span class="text-brand">OFICIALES</span></h2>
+            <h2 class="display text-6xl md:text-8xl leading-none">ELEG\u00cd TUS<br/><span class="text-brand">STICKERS</span></h2>
           </div>
-          <div class="text-sm text-neutral-400 max-w-xs">${subtitle}</div>
+          <div class="text-sm text-neutral-400 max-w-md">${subtitle}</div>
         </${motion.div}>
+
+        <!-- Tabla de packs disponibles -->
+        <div class="mb-10 border border-white/10 rounded-2xl bg-black/40 backdrop-blur p-5">
+          <div class="text-xs tracking-[0.3em] text-brand mb-3">// PRECIOS POR CANTIDAD</div>
+          <div class="flex flex-wrap gap-3">
+            ${packsCfg.packs.map(p => html`
+              <div key=${p.n} class=${"px-5 py-3 rounded-xl border display tracking-widest "+(qty===p.n?'border-brand bg-brand/20 text-brand':'border-white/10 text-neutral-300')}>
+                <span class="text-2xl">${p.n}</span>
+                <span class="text-xs ml-2">${p.n===1?'STICKER':'STICKERS'}</span>
+                <span class="block text-brand text-lg mt-1">$${p.price.toLocaleString('es-CL')}</span>
+              </div>
+            `)}
+            <div class="px-5 py-3 rounded-xl border border-white/10 text-neutral-300 display tracking-widest">
+              <span class="text-xs">EXTRA</span>
+              <span class="block text-brand text-lg mt-1">+$${(packsCfg.extra_price||3000).toLocaleString('es-CL')}</span>
+              <span class="text-[10px] text-neutral-500">c/u sobre el pack</span>
+            </div>
+          </div>
+        </div>
+
         ${visible.length === 0 ? html`
           <div class="text-center py-20 text-neutral-500 border border-white/10 rounded-3xl bg-white/5">
             No hay stickers disponibles para este sorteo todav\u00eda.
           </div>
         ` : html`
-          <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            ${visible.map(s => html`<${StickerCard} key=${s.id} s=${s} qty=${cart[s.id]||0} add=${add} sub=${sub}/>`)}
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-5">
+            ${visible.map(s => html`<${StickerCard} key=${s.id} s=${s} selected=${!!cart[s.id]} toggle=${toggle}/>`)}
           </div>
         `}
       </div>
+
+      <!-- Footer fijo con resumen -->
+      ${qty > 0 && html`
+        <${motion.div} initial=${{y:120,opacity:0}} animate=${{y:0,opacity:1}} transition=${{type:'spring',damping:25}}
+          class="fixed bottom-0 left-0 right-0 z-40 bg-neutral-950/95 backdrop-blur-md border-t border-brand/40 shadow-[0_-10px_40px_rgba(255,106,0,0.25)]">
+          <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
+            <div class="flex items-center gap-6">
+              <div>
+                <div class="text-[10px] tracking-[0.3em] text-neutral-500">SELECCIONADOS</div>
+                <div class="display text-3xl">${qty} <span class="text-base text-neutral-400">${qty===1?'sticker':'stickers'}</span></div>
+              </div>
+              <div class="hidden sm:block w-px h-12 bg-white/10"></div>
+              <div>
+                <div class="text-[10px] tracking-[0.3em] text-neutral-500">TOTAL</div>
+                <div class="display text-3xl text-brand">$${total.toLocaleString('es-CL')}</div>
+              </div>
+              <div class="hidden md:block w-px h-12 bg-white/10"></div>
+              <div class="hidden md:block">
+                <div class="text-[10px] tracking-[0.3em] text-neutral-500">N\u00daMEROS SORTEO</div>
+                <div class="display text-2xl">\ud83c\udfc1 ${numeros}</div>
+              </div>
+            </div>
+            <button onClick=${openCart} class="px-8 py-4 bg-brand text-black display tracking-widest rounded-full hover-glow text-base">
+              IR A PAGAR \u2192
+            </button>
+          </div>
+        </${motion.div}>
+      `}
     </section>
   `;
 }
@@ -904,15 +976,19 @@ function validateRUT(rut){
   return dv === rutCalculateDV(body);
 }
 
-function CartDrawer({ open, close, cart, add, sub, stickersList }){
-  const [stage,setStage] = useState('idle'); // idle | form | redirecting | error | done
+function CartDrawer({ open, close, cart, toggle, sub, stickersList, activeSorteo }){
+  const [stage,setStage] = useState('idle');
   const [form,setForm] = useState({name:'',email:'',rut:'',phone:''});
   const [errMsg,setErrMsg] = useState('');
   const source = stickersList && stickersList.length ? stickersList : STICKERS;
   const items = Object.entries(cart)
-    .map(([id,q])=>{ const s = source.find(x=>x.id===+id); return s ? {...s, qty:q} : null; })
+    .filter(([,q]) => q)
+    .map(([id])=>{ const s = source.find(x=>x.id===+id); return s || null; })
     .filter(Boolean);
-  const total = items.reduce((a,b)=>a+(b.price||0)*b.qty,0);
+  const packsCfg = (activeSorteo && activeSorteo.packsPricing) || DEFAULT_PACKS_PRICING;
+  const qty = items.length;
+  const total = calcPackPrice(qty, packsCfg);
+  const numeros = Math.floor(total / 1000);
 
   function goToForm(){ setErrMsg(''); setStage('form'); }
   async function submitCheckout(){
@@ -924,8 +1000,8 @@ function CartDrawer({ open, close, cart, add, sub, stickersList }){
     setStage('redirecting');
     try {
       const payload = {
-        items: items.map(it=>({ sticker_id: it.id, qty: it.qty })),
-        customer: { name: form.name.trim(), email: form.email.trim().toLowerCase(), rut: form.rut.trim()||null, phone: form.phone.trim()||null }
+        sticker_ids: items.map(it => it.id),
+        customer: { name: form.name.trim(), email: form.email.trim().toLowerCase(), rut: form.rut.trim(), phone: form.phone.trim()||null }
       };
       const res = await fetch(`${SUPABASE_URL}/functions/v1/create-checkout`, {
         method:'POST',
@@ -934,7 +1010,6 @@ function CartDrawer({ open, close, cart, add, sub, stickersList }){
       });
       const data = await res.json();
       if (!res.ok || !data.url) throw new Error(data.error || 'Error al crear sesión de pago');
-      // limpiar carrito local antes de salir; la compra ya quedo "pending" en DB
       Object.keys(cart).forEach(k=>sub(+k));
       window.location.href = data.url;
     } catch(e){
@@ -987,29 +1062,27 @@ function CartDrawer({ open, close, cart, add, sub, stickersList }){
                 <button onClick=${()=>setStage('idle')} class="w-full py-2 text-xs text-neutral-500 tracking-widest hover:text-brand">← VOLVER AL CARRITO</button>
               </div>
             ` : items.length===0 ? html`
-              <div class="p-10 text-center text-neutral-500">Tu carrito está vacío</div>
+              <div class="p-10 text-center text-neutral-500">Tu carrito está vacío. Volvé a la tienda y seleccioná stickers.</div>
             ` : html`
-              <div class="p-6 space-y-3">
+              <div class="p-6 space-y-2">
+                <div class="text-[10px] tracking-[0.3em] text-brand mb-2">// ${qty} ${qty===1?'STICKER SELECCIONADO':'STICKERS SELECCIONADOS'}</div>
                 ${items.map(it=>html`
-                  <div key=${it.id} class="flex items-center gap-4 bg-white/5 border border-white/10 rounded-2xl p-4">
-                    <div class="w-14 h-14 rounded-xl bg-gradient-to-br from-brand/20 via-black to-black border border-white/10 flex items-center justify-center overflow-hidden shrink-0">
-                      ${it.imageUrl ? html`<img src=${it.imageUrl} alt=${it.name} class="w-full h-full object-cover"/>` : html`<div class="text-3xl">${it.emoji}</div>`}
+                  <div key=${it.id} class="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl p-3">
+                    <div class="w-12 h-12 rounded-lg bg-gradient-to-br from-brand/20 via-black to-black border border-white/10 flex items-center justify-center overflow-hidden shrink-0">
+                      ${it.imageUrl ? html`<img src=${it.imageUrl} alt=${it.name} class="w-full h-full object-cover"/>` : html`<div class="text-2xl">${it.emoji}</div>`}
                     </div>
-                    <div class="flex-1">
-                      <div class="display tracking-wide">${it.name}</div>
-                      <div class="text-brand display">$${it.price.toLocaleString('es-CL')}</div>
+                    <div class="flex-1 min-w-0">
+                      <div class="display tracking-wide text-sm truncate">${it.name}</div>
+                      ${it.desc && html`<div class="text-[10px] text-neutral-500 truncate">${it.desc}</div>`}
                     </div>
-                    <div class="flex items-center gap-1">
-                      <button onClick=${()=>sub(it.id)} class="w-8 h-8 bg-white/10 rounded-full hover:bg-brand hover:text-black">−</button>
-                      <span class="w-6 text-center font-bold">${it.qty}</span>
-                      <button onClick=${()=>add(it.id)} class="w-8 h-8 bg-white/10 rounded-full hover:bg-brand hover:text-black">+</button>
-                    </div>
+                    <button onClick=${()=>toggle(it.id)} class="w-8 h-8 bg-white/5 hover:bg-red-900/40 hover:text-red-300 text-neutral-500 rounded-full text-sm" title="Quitar">✕</button>
                   </div>
                 `)}
               </div>
-              <div class="p-6 border-t border-white/10 space-y-4">
-                <div class="flex justify-between display text-2xl"><span>TOTAL</span><span class="text-brand">$${total.toLocaleString('es-CL')}</span></div>
-                <div class="text-xs tracking-widest text-neutral-500">🏁 OBTIENES ${Math.floor(total/1000)} NÚMEROS PARA EL SORTEO</div>
+              <div class="p-6 border-t border-white/10 space-y-3">
+                <div class="flex justify-between text-sm text-neutral-400"><span>${qty} ${qty===1?'sticker':'stickers'}</span><span class="text-brand">aplicó pack óptimo</span></div>
+                <div class="flex justify-between display text-3xl"><span>TOTAL</span><span class="text-brand">$${total.toLocaleString('es-CL')}</span></div>
+                <div class="text-xs tracking-widest text-neutral-500">🏁 OBTIENES ${numeros} NÚMERO${numeros!==1?'S':''} PARA EL SORTEO</div>
                 <button onClick=${goToForm} class="w-full py-4 bg-brand text-black display tracking-widest text-lg rounded-full hover-glow">💳 PAGAR CON STRIPE</button>
               </div>
             `}
@@ -1605,6 +1678,7 @@ function App(){
   const cartCount = Object.values(cart).reduce((a,b)=>a+b,0);
   const add = id => setCart(c=>({...c,[id]:(c[id]||0)+1}));
   const sub = id => setCart(c=>{ const n={...c}; n[id]=(n[id]||0)-1; if(n[id]<=0)delete n[id]; return n; });
+  const toggle = id => setCart(c=>{ const n={...c}; if (n[id]) delete n[id]; else n[id]=1; return n; });
   const goto = t => { ScrollTrigger.getAll().forEach(st=>st.kill()); lenis.stop(); setTab(t); setTimeout(()=>{window.scrollTo({top:0,behavior:'instant'});lenis.start();},50); };
 
   const activeSorteo = sorteos.find(s=>s.active && s.status!=='bloqueado');
@@ -1622,14 +1696,14 @@ function App(){
         </${React.Fragment}>
       `}
       ${tab==='sorteo' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase cursor-pointer">\u2190 VOLVER A INICIO</button></div><${Sorteo} goto=${goto} sorteos=${sorteos}/></div>`}
-      ${tab==='stickers' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase cursor-pointer">\u2190 VOLVER A INICIO</button></div><${Stickers} cart=${cart} add=${add} sub=${sub} stickersList=${stickersList} activeSorteo=${activeSorteo}/></div>`}
+      ${tab==='stickers' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase cursor-pointer">\u2190 VOLVER A INICIO</button></div><${Stickers} cart=${cart} toggle=${toggle} openCart=${()=>setCartOpen(true)} stickersList=${stickersList} activeSorteo=${activeSorteo}/></div>`}
 
       <footer class="border-t border-white/10 mt-20 py-10 text-center">
         <div class="display text-2xl text-brand">CLAUDIO EN PISTA</div>
         <div class="text-xs tracking-[0.3em] text-neutral-600 mt-2">© 2026 · DEMO PREMIUM · STRIPE SANDBOX</div>
       </footer>
 
-      <${CartDrawer} open=${cartOpen} close=${()=>setCartOpen(false)} cart=${cart} add=${add} sub=${sub} stickersList=${stickersList}/>
+      <${CartDrawer} open=${cartOpen} close=${()=>setCartOpen(false)} cart=${cart} toggle=${toggle} sub=${sub} stickersList=${stickersList} activeSorteo=${activeSorteo}/>
 
       ${checkoutResult && html`
         <div class="fixed inset-0 z-[70] bg-black/90 backdrop-blur flex items-center justify-center p-6" onClick=${()=>setCheckoutResult(null)}>
