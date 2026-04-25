@@ -63,7 +63,8 @@
     "gsap":      "https://esm.sh/gsap@3.12.5",
     "gsap/ScrollTrigger": "https://esm.sh/gsap@3.12.5/ScrollTrigger",
     "lenis":     "https://esm.sh/lenis@1.1.6",
-    "htm":       "https://esm.sh/htm@3.1.1"
+    "htm":       "https://esm.sh/htm@3.1.1",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.45.0"
   }
 }
 </script>
@@ -121,9 +122,124 @@ import gsap from 'gsap';
 import ScrollTrigger from 'gsap/ScrollTrigger';
 import Lenis from 'lenis';
 import htm from 'htm';
+import { createClient } from '@supabase/supabase-js';
 
 const html = htm.bind(React.createElement);
 gsap.registerPlugin(ScrollTrigger);
+
+/* ============== SUPABASE CLIENT ============== */
+const SUPABASE_URL = 'https://osoblthqksoreeeazeuu.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_VhCXPk09-uVFBYW8rTmJiw_Kz2cbcxd';
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { persistSession: true, autoRefreshToken: true, storageKey: 'cep:auth' }
+});
+
+const dbToSorteo = (s) => ({
+  id: s.id,
+  title: s.title,
+  prize: s.prize || '',
+  start: s.start_date || '',
+  end:   s.end_date || '',
+  active: !!s.active,
+  status: s.status || 'activo',
+  heroCards: Array.isArray(s.hero_cards) ? s.hero_cards : [],
+  prizes:    Array.isArray(s.prizes)     ? s.prizes : [],
+  bases:     Array.isArray(s.bases)      ? s.bases : []
+});
+const sorteoToDb = (s) => ({
+  title: s.title,
+  prize: s.prize || '',
+  start_date: s.start || null,
+  end_date: s.end || null,
+  active: !!s.active,
+  status: s.status || 'activo',
+  hero_cards: s.heroCards || [],
+  prizes: s.prizes || [],
+  bases: s.bases || []
+});
+const dbToSticker = (s) => ({
+  id: s.id,
+  name: s.name,
+  desc: s.description || '',
+  price: s.price,
+  emoji: s.emoji || '',
+  sorteoId: s.sorteo_id,
+  position: s.position || 0,
+  active: !!s.active
+});
+const stickerToDb = (s) => ({
+  name: s.name,
+  description: s.desc || '',
+  price: +s.price || 0,
+  emoji: s.emoji || '',
+  sorteo_id: s.sorteoId || null,
+  position: s.position || 0,
+  active: s.active !== false
+});
+
+async function dbFetchSorteos(){
+  const { data, error } = await sb.from('sorteos').select('*').order('id', { ascending: true });
+  if (error) throw error;
+  return (data || []).map(dbToSorteo);
+}
+async function dbUpsertSorteo(s){
+  const payload = sorteoToDb(s);
+  if (s.id && Number.isInteger(s.id) && s.id < 1e10){
+    const { data, error } = await sb.from('sorteos').update(payload).eq('id', s.id).select('*').single();
+    if (error) throw error;
+    return dbToSorteo(data);
+  }
+  const { data, error } = await sb.from('sorteos').insert(payload).select('*').single();
+  if (error) throw error;
+  return dbToSorteo(data);
+}
+async function dbDeleteSorteo(id){
+  const { error } = await sb.from('sorteos').delete().eq('id', id);
+  if (error) throw error;
+}
+
+async function dbFetchStickers(){
+  const { data, error } = await sb.from('stickers').select('*').eq('active', true).order('position', { ascending: true });
+  if (error) throw error;
+  return (data || []).map(dbToSticker);
+}
+async function dbUpsertSticker(s){
+  const payload = stickerToDb(s);
+  if (s.id && Number.isInteger(s.id) && s.id < 1e10){
+    const { data, error } = await sb.from('stickers').update(payload).eq('id', s.id).select('*').single();
+    if (error) throw error;
+    return dbToSticker(data);
+  }
+  const { data, error } = await sb.from('stickers').insert(payload).select('*').single();
+  if (error) throw error;
+  return dbToSticker(data);
+}
+async function dbDeleteSticker(id){
+  // soft delete: marcar como inactivo, no romper FKs de compras pasadas
+  const { error } = await sb.from('stickers').update({ active: false }).eq('id', id);
+  if (error) throw error;
+}
+
+async function dbAdminSignIn(email, password){
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+  const { data: adm, error: e2 } = await sb.from('admins').select('user_id').eq('user_id', data.user.id).maybeSingle();
+  if (e2) throw e2;
+  if (!adm){ await sb.auth.signOut(); throw new Error('Cuenta no autorizada como admin. Contactá al super admin.'); }
+  return data.user;
+}
+async function dbAdminSignUp(email, password){
+  const { data, error } = await sb.auth.signUp({ email, password });
+  if (error) throw error;
+  return data.user;
+}
+async function dbAdminSignOut(){ await sb.auth.signOut(); }
+async function dbCurrentAdmin(){
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return null;
+  const { data: adm } = await sb.from('admins').select('user_id').eq('user_id', user.id).maybeSingle();
+  return adm ? user : null;
+}
 
 /* loader handled in non-module script above */
 
@@ -798,13 +914,65 @@ function CartDrawer({ open, close, cart, add, sub, stickersList }){
 }
 
 /* ============== ADMIN PANEL ============== */
-function Admin({ open, close, sorteos, setSorteos, stickersList, setStickersList }){
-  const [auth,setAuth] = useState(false);
+function Admin({ open, close, sorteos, stickersList,
+                 patchSorteoLocal, saveSorteoAt, addSorteo, deleteSorteoById,
+                 patchStickerLocal, saveStickerAt, addSticker, deleteStickerById,
+                 refreshSorteos, refreshStickers, dbReady, dbError }){
+  const [user,setUser] = useState(null);
+  const [authMode,setAuthMode] = useState('signin'); // 'signin' | 'signup'
+  const [email,setEmail] = useState('');
   const [pw,setPw] = useState('');
+  const [authBusy,setAuthBusy] = useState(false);
+  const [authMsg,setAuthMsg] = useState('');
   const [section,setSection] = useState('sorteos');
   const [editPanel,setEditPanel] = useState(null); // {idx, type:'prizes'|'hero'|'bases'}
   const isPanel = (i,t) => editPanel && editPanel.idx===i && editPanel.type===t;
   const togglePanel = (i,t) => setEditPanel(isPanel(i,t) ? null : {idx:i, type:t});
+
+  // verificar sesion al abrir
+  useEffect(()=>{
+    if (!open) return;
+    (async ()=>{
+      const u = await dbCurrentAdmin();
+      setUser(u);
+    })();
+  }, [open]);
+
+  async function handleSignIn(){
+    setAuthBusy(true); setAuthMsg('');
+    try { const u = await dbAdminSignIn(email.trim(), pw); setUser(u); setPw(''); setAuthMsg(''); }
+    catch(e){ setAuthMsg(e.message || 'Error de login'); }
+    setAuthBusy(false);
+  }
+  async function handleSignUp(){
+    setAuthBusy(true); setAuthMsg('');
+    try {
+      await dbAdminSignUp(email.trim(), pw);
+      setAuthMsg('Cuenta creada. Pedile al super admin que te autorice (te tiene que agregar a la tabla admins). Después podés hacer login.');
+      setAuthMode('signin'); setPw('');
+    }
+    catch(e){ setAuthMsg(e.message || 'Error al crear cuenta'); }
+    setAuthBusy(false);
+  }
+  async function handleSignOut(){
+    await dbAdminSignOut(); setUser(null);
+  }
+
+  // helpers para listas anidadas (heroCards, prizes, bases)
+  function patchNested(idx, listKey, subIdx, patch){
+    const list = [...(sorteos[idx][listKey] || [])];
+    list[subIdx] = { ...list[subIdx], ...patch };
+    patchSorteoLocal(idx, { [listKey]: list });
+  }
+  function appendToList(idx, listKey, item){
+    const list = [...(sorteos[idx][listKey] || []), item];
+    patchSorteoLocal(idx, { [listKey]: list });
+  }
+  function removeFromList(idx, listKey, subIdx){
+    const list = [...(sorteos[idx][listKey] || [])];
+    list.splice(subIdx, 1);
+    patchSorteoLocal(idx, { [listKey]: list });
+  }
   const [participants] = useState([
     { id:101, name:'Javier R.', email:'jr@mail.cl', numeros:5, fecha:'2026-04-01' },
     { id:102, name:'María P.',  email:'mp@mail.cl', numeros:8, fecha:'2026-04-02' },
@@ -823,20 +991,32 @@ function Admin({ open, close, sorteos, setSorteos, stickersList, setStickersList
               <div>
                 <div class="text-xs tracking-[0.4em] text-brand">// PANEL DE CONTROL</div>
                 <h2 class="display text-5xl md:text-7xl mt-2">ADMIN <span class="text-brand">CEP</span></h2>
+                ${user && html`<div class="text-xs text-neutral-500 mt-2">${user.email} · <button onClick=${handleSignOut} class="text-brand hover:underline">cerrar sesión</button></div>`}
               </div>
               <button onClick=${close} class="px-6 py-3 border border-white/20 rounded-full hover:border-brand display tracking-widest text-sm">CERRAR ✕</button>
             </div>
 
-            ${!auth ? html`
-              <div class="max-w-md mx-auto mt-20 border border-white/10 rounded-3xl p-10 bg-white/5 backdrop-blur neon-border">
-                <div class="display text-3xl mb-6 text-center">ACCESO ADMINISTRADOR</div>
+            ${!user ? html`
+              <div class="max-w-md mx-auto mt-16 border border-white/10 rounded-3xl p-10 bg-white/5 backdrop-blur neon-border">
+                <div class="display text-3xl mb-2 text-center">${authMode==='signin'?'ACCESO ADMIN':'CREAR CUENTA'}</div>
+                <div class="text-xs text-center text-neutral-500 mb-6 tracking-widest">SUPABASE AUTH · ${authMode==='signin'?'EMAIL + PASSWORD':'REGISTRO INICIAL'}</div>
+                <input type="email" value=${email} onChange=${e=>setEmail(e.target.value)}
+                  placeholder="email@dominio.cl"
+                  class="w-full bg-black/40 border border-white/10 rounded-full px-5 py-3 outline-none focus:border-brand mb-3"/>
                 <input type="password" value=${pw} onChange=${e=>setPw(e.target.value)}
-                  placeholder="Password (demo: admin)"
-                  onKeyDown=${e=>e.key==='Enter' && pw==='admin' && setAuth(true)}
-                  class="w-full bg-black/40 border border-white/10 rounded-full px-5 py-3 outline-none focus:border-brand text-center"/>
-                <button onClick=${()=>pw==='admin'&&setAuth(true)}
-                  class="w-full mt-4 py-3 bg-brand text-black display tracking-widest rounded-full hover-glow">ENTRAR</button>
-                <div class="text-[10px] text-center text-neutral-600 mt-4 tracking-widest">DEMO · USA "admin" COMO PASSWORD</div>
+                  placeholder="contraseña (mín 6 caracteres)"
+                  onKeyDown=${e=>{ if(e.key==='Enter'){ authMode==='signin'?handleSignIn():handleSignUp(); }}}
+                  class="w-full bg-black/40 border border-white/10 rounded-full px-5 py-3 outline-none focus:border-brand"/>
+                ${authMsg && html`<div class="text-xs text-center mt-3 ${authMsg.includes('autorizada')||authMsg.includes('Error')||authMsg.includes('Invalid')?'text-red-400':'text-brand'}">${authMsg}</div>`}
+                <button onClick=${authMode==='signin'?handleSignIn:handleSignUp} disabled=${authBusy}
+                  class="w-full mt-4 py-3 bg-brand text-black display tracking-widest rounded-full hover-glow disabled:opacity-40">
+                  ${authBusy?'...':authMode==='signin'?'ENTRAR':'CREAR CUENTA'}
+                </button>
+                <div class="text-center text-xs text-neutral-500 mt-4">
+                  ${authMode==='signin'
+                    ? html`¿No tenés cuenta? <button onClick=${()=>{setAuthMode('signup');setAuthMsg('');}} class="text-brand hover:underline">crear cuenta</button>`
+                    : html`¿Ya tenés cuenta? <button onClick=${()=>{setAuthMode('signin');setAuthMsg('');}} class="text-brand hover:underline">entrar</button>`}
+                </div>
               </div>
             ` : html`
               <div class="grid md:grid-cols-12 gap-6">
@@ -858,36 +1038,43 @@ function Admin({ open, close, sorteos, setSorteos, stickersList, setStickersList
                   ${section==='sorteos' && html`
                     <div>
                       <div class="flex items-center justify-between mb-6">
-                        <div class="display text-3xl">SORTEOS ACTIVOS</div>
-                        <button onClick=${()=>setSorteos([...sorteos,{id:Date.now(),title:'Nuevo sorteo',prize:'',start:'',end:'',active:false,status:'activo',heroCards:[{title:'CARD 1',desc:'Descripci\u00f3n',color1:'#ff6a00',color2:'#dc2626'}],prizes:[{t:'PREMIO 1',d:'Descripci\u00f3n'}],bases:[{label:'Organizador',value:'Claudio en Pista'}]}])} class="px-5 py-2 bg-brand text-black display tracking-widest text-sm rounded-full hover-glow">+ NUEVO</button>
+                        <div>
+                          <div class="display text-3xl">SORTEOS</div>
+                          <div class="text-[10px] text-neutral-500 tracking-widest">${dbReady?'\u2713 SINCRONIZADO CON DB':'\u26a0 MODO LOCAL'} ${dbError?' \u00b7 '+dbError:''}</div>
+                        </div>
+                        <div class="flex gap-2">
+                          <button onClick=${refreshSorteos} class="px-3 py-2 border border-white/20 rounded-full text-xs tracking-widest text-neutral-300 hover:border-brand">\u21bb RECARGAR</button>
+                          <button onClick=${addSorteo} class="px-5 py-2 bg-brand text-black display tracking-widest text-sm rounded-full hover-glow">+ NUEVO</button>
+                        </div>
                       </div>
                       <div class="space-y-4">
                         ${sorteos.map((s,i)=>html`
                           <div key=${s.id} class="border border-white/10 rounded-2xl p-5 bg-black/30 space-y-3">
                             <div class="flex flex-wrap gap-3 items-center">
-                              <input value=${s.title} onChange=${e=>{const n=[...sorteos];n[i].title=e.target.value;setSorteos(n);}} placeholder="T\u00edtulo" class="flex-1 min-w-[200px] bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand"/>
-                              <input value=${s.prize} onChange=${e=>{const n=[...sorteos];n[i].prize=e.target.value;setSorteos(n);}} placeholder="Descripci\u00f3n" class="flex-1 min-w-[150px] bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand"/>
-                              <input type="date" value=${s.end} onChange=${e=>{const n=[...sorteos];n[i].end=e.target.value;setSorteos(n);}} class="bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand text-xs"/>
-                              <label class="flex items-center gap-2 text-xs"><input type="checkbox" checked=${s.active} onChange=${e=>{const n=[...sorteos];n[i].active=e.target.checked;setSorteos(n);}}/> ON</label>
-                              <button onClick=${()=>{const n=[...sorteos];n[i].status=s.status==='bloqueado'?'activo':'bloqueado';setSorteos(n);}} class=${"px-2 py-1 rounded-lg text-xs border "+(s.status==='bloqueado'?"border-red-500 text-red-400 bg-red-900/30":"border-green-500 text-green-400 bg-green-900/30")}>${s.status==='bloqueado'?'BLOQUEADO':'ACTIVO'}</button>
+                              <input value=${s.title} onChange=${e=>patchSorteoLocal(i,{title:e.target.value})} placeholder="T\u00edtulo" class="flex-1 min-w-[200px] bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand"/>
+                              <input value=${s.prize} onChange=${e=>patchSorteoLocal(i,{prize:e.target.value})} placeholder="Descripci\u00f3n" class="flex-1 min-w-[150px] bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand"/>
+                              <input type="date" value=${s.end||''} onChange=${e=>patchSorteoLocal(i,{end:e.target.value})} class="bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand text-xs"/>
+                              <label class="flex items-center gap-2 text-xs"><input type="checkbox" checked=${s.active} onChange=${e=>patchSorteoLocal(i,{active:e.target.checked})}/> ON</label>
+                              <button onClick=${()=>patchSorteoLocal(i,{status:s.status==='bloqueado'?'activo':'bloqueado'})} class=${"px-2 py-1 rounded-lg text-xs border "+(s.status==='bloqueado'?"border-red-500 text-red-400 bg-red-900/30":"border-green-500 text-green-400 bg-green-900/30")}>${s.status==='bloqueado'?'BLOQUEADO':'ACTIVO'}</button>
                               <button onClick=${()=>togglePanel(i,'hero')} class=${"px-2 py-1 rounded-lg text-xs border "+(isPanel(i,'hero')?"border-brand text-brand":"border-white/20 text-neutral-400")}>${isPanel(i,'hero')?'CERRAR':'HERO CARDS'}</button>
                               <button onClick=${()=>togglePanel(i,'prizes')} class=${"px-2 py-1 rounded-lg text-xs border "+(isPanel(i,'prizes')?"border-brand text-brand":"border-white/20 text-neutral-400")}>${isPanel(i,'prizes')?'CERRAR':'PREMIOS'}</button>
                               <button onClick=${()=>togglePanel(i,'bases')} class=${"px-2 py-1 rounded-lg text-xs border "+(isPanel(i,'bases')?"border-brand text-brand":"border-white/20 text-neutral-400")}>${isPanel(i,'bases')?'CERRAR':'BASES'}</button>
-                              <button onClick=${()=>setSorteos(sorteos.filter(x=>x.id!==s.id))} class="text-red-500 hover:text-red-400 text-lg">\u2715</button>
+                              <button onClick=${()=>saveSorteoAt(i)} class="px-3 py-1 rounded-lg text-xs border border-brand bg-brand/10 text-brand hover:bg-brand hover:text-black">\ud83d\udcbe GUARDAR</button>
+                              <button onClick=${()=>{ if(confirm('\u00bfBorrar el sorteo "'+s.title+'"? No se puede deshacer.')) deleteSorteoById(s.id); }} class="text-red-500 hover:text-red-400 text-lg">\u2715</button>
                             </div>
                             ${isPanel(i,'hero') && html`
                               <div class="border-t border-white/10 pt-3">
                                 <div class="flex items-center justify-between mb-3">
                                   <div class="text-xs tracking-widest text-brand">HERO CARDS (gallery horizontal del home)</div>
-                                  <button onClick=${()=>{const n=[...sorteos];if(!n[i].heroCards)n[i].heroCards=[];n[i].heroCards.push({title:'NUEVA',desc:'',color1:'#ff6a00',color2:'#dc2626'});setSorteos(n);}} class="text-xs text-brand hover:underline">+ Agregar</button>
+                                  <button onClick=${()=>appendToList(i,'heroCards',{title:'NUEVA',desc:'',color1:'#ff6a00',color2:'#dc2626'})} class="text-xs text-brand hover:underline">+ Agregar</button>
                                 </div>
                                 ${(s.heroCards||[]).map((h,hi)=>html`
                                   <div key=${hi} class="flex gap-2 items-center mb-2 flex-wrap">
-                                    <input value=${h.title} onChange=${e=>{const n=[...sorteos];n[i].heroCards[hi].title=e.target.value;setSorteos(n);}} placeholder="T\u00edtulo" class="flex-1 min-w-[120px] bg-black/60 border border-white/10 rounded px-2 py-1 text-sm outline-none focus:border-brand"/>
-                                    <input value=${h.desc} onChange=${e=>{const n=[...sorteos];n[i].heroCards[hi].desc=e.target.value;setSorteos(n);}} placeholder="Descripci\u00f3n" class="flex-1 min-w-[140px] bg-black/60 border border-white/10 rounded px-2 py-1 text-sm outline-none focus:border-brand"/>
-                                    <label class="text-xs text-neutral-500">C1<input type="color" value=${h.color1||'#ff6a00'} onChange=${e=>{const n=[...sorteos];n[i].heroCards[hi].color1=e.target.value;setSorteos(n);}} class="ml-1 w-8 h-7 align-middle"/></label>
-                                    <label class="text-xs text-neutral-500">C2<input type="color" value=${h.color2||'#dc2626'} onChange=${e=>{const n=[...sorteos];n[i].heroCards[hi].color2=e.target.value;setSorteos(n);}} class="ml-1 w-8 h-7 align-middle"/></label>
-                                    <button onClick=${()=>{const n=[...sorteos];n[i].heroCards.splice(hi,1);setSorteos(n);}} class="text-red-500 text-xs">\u2715</button>
+                                    <input value=${h.title} onChange=${e=>patchNested(i,'heroCards',hi,{title:e.target.value})} placeholder="T\u00edtulo" class="flex-1 min-w-[120px] bg-black/60 border border-white/10 rounded px-2 py-1 text-sm outline-none focus:border-brand"/>
+                                    <input value=${h.desc} onChange=${e=>patchNested(i,'heroCards',hi,{desc:e.target.value})} placeholder="Descripci\u00f3n" class="flex-1 min-w-[140px] bg-black/60 border border-white/10 rounded px-2 py-1 text-sm outline-none focus:border-brand"/>
+                                    <label class="text-xs text-neutral-500">C1<input type="color" value=${h.color1||'#ff6a00'} onChange=${e=>patchNested(i,'heroCards',hi,{color1:e.target.value})} class="ml-1 w-8 h-7 align-middle"/></label>
+                                    <label class="text-xs text-neutral-500">C2<input type="color" value=${h.color2||'#dc2626'} onChange=${e=>patchNested(i,'heroCards',hi,{color2:e.target.value})} class="ml-1 w-8 h-7 align-middle"/></label>
+                                    <button onClick=${()=>removeFromList(i,'heroCards',hi)} class="text-red-500 text-xs">\u2715</button>
                                   </div>
                                 `)}
                               </div>
@@ -896,13 +1083,13 @@ function Admin({ open, close, sorteos, setSorteos, stickersList, setStickersList
                               <div class="border-t border-white/10 pt-3">
                                 <div class="flex items-center justify-between mb-3">
                                   <div class="text-xs tracking-widest text-brand">PREMIOS (Vuelos, Hotel, Tickets...)</div>
-                                  <button onClick=${()=>{const n=[...sorteos];if(!n[i].prizes)n[i].prizes=[];n[i].prizes.push({t:'NUEVO',d:''});setSorteos(n);}} class="text-xs text-brand hover:underline">+ Agregar</button>
+                                  <button onClick=${()=>appendToList(i,'prizes',{t:'NUEVO',d:''})} class="text-xs text-brand hover:underline">+ Agregar</button>
                                 </div>
                                 ${(s.prizes||[]).map((p,pi)=>html`
                                   <div key=${pi} class="flex gap-2 items-center mb-2">
-                                    <input value=${p.t} onChange=${e=>{const n=[...sorteos];n[i].prizes[pi].t=e.target.value;setSorteos(n);}} placeholder="T\u00edtulo" class="w-1/3 bg-black/60 border border-white/10 rounded px-2 py-1 text-sm outline-none focus:border-brand"/>
-                                    <input value=${p.d} onChange=${e=>{const n=[...sorteos];n[i].prizes[pi].d=e.target.value;setSorteos(n);}} placeholder="Descripci\u00f3n" class="flex-1 bg-black/60 border border-white/10 rounded px-2 py-1 text-sm outline-none focus:border-brand"/>
-                                    <button onClick=${()=>{const n=[...sorteos];n[i].prizes.splice(pi,1);setSorteos(n);}} class="text-red-500 text-xs">\u2715</button>
+                                    <input value=${p.t} onChange=${e=>patchNested(i,'prizes',pi,{t:e.target.value})} placeholder="T\u00edtulo" class="w-1/3 bg-black/60 border border-white/10 rounded px-2 py-1 text-sm outline-none focus:border-brand"/>
+                                    <input value=${p.d} onChange=${e=>patchNested(i,'prizes',pi,{d:e.target.value})} placeholder="Descripci\u00f3n" class="flex-1 bg-black/60 border border-white/10 rounded px-2 py-1 text-sm outline-none focus:border-brand"/>
+                                    <button onClick=${()=>removeFromList(i,'prizes',pi)} class="text-red-500 text-xs">\u2715</button>
                                   </div>
                                 `)}
                               </div>
@@ -911,13 +1098,13 @@ function Admin({ open, close, sorteos, setSorteos, stickersList, setStickersList
                               <div class="border-t border-white/10 pt-3">
                                 <div class="flex items-center justify-between mb-3">
                                   <div class="text-xs tracking-widest text-brand">BASES (texto legal del sorteo)</div>
-                                  <button onClick=${()=>{const n=[...sorteos];if(!n[i].bases)n[i].bases=[];n[i].bases.push({label:'Nuevo',value:''});setSorteos(n);}} class="text-xs text-brand hover:underline">+ Agregar</button>
+                                  <button onClick=${()=>appendToList(i,'bases',{label:'Nuevo',value:''})} class="text-xs text-brand hover:underline">+ Agregar</button>
                                 </div>
                                 ${(s.bases||[]).map((b,bi)=>html`
                                   <div key=${bi} class="flex gap-2 items-start mb-2">
-                                    <input value=${b.label} onChange=${e=>{const n=[...sorteos];n[i].bases[bi].label=e.target.value;setSorteos(n);}} placeholder="T\u00edtulo" class="w-1/4 bg-black/60 border border-white/10 rounded px-2 py-1 text-sm outline-none focus:border-brand"/>
-                                    <textarea value=${b.value} onChange=${e=>{const n=[...sorteos];n[i].bases[bi].value=e.target.value;setSorteos(n);}} placeholder="Texto" rows="2" class="flex-1 bg-black/60 border border-white/10 rounded px-2 py-1 text-sm outline-none focus:border-brand resize-none"></textarea>
-                                    <button onClick=${()=>{const n=[...sorteos];n[i].bases.splice(bi,1);setSorteos(n);}} class="text-red-500 text-xs mt-1">\u2715</button>
+                                    <input value=${b.label} onChange=${e=>patchNested(i,'bases',bi,{label:e.target.value})} placeholder="T\u00edtulo" class="w-1/4 bg-black/60 border border-white/10 rounded px-2 py-1 text-sm outline-none focus:border-brand"/>
+                                    <textarea value=${b.value} onChange=${e=>patchNested(i,'bases',bi,{value:e.target.value})} placeholder="Texto" rows="2" class="flex-1 bg-black/60 border border-white/10 rounded px-2 py-1 text-sm outline-none focus:border-brand resize-none"></textarea>
+                                    <button onClick=${()=>removeFromList(i,'bases',bi)} class="text-red-500 text-xs mt-1">\u2715</button>
                                   </div>
                                 `)}
                               </div>
@@ -925,31 +1112,39 @@ function Admin({ open, close, sorteos, setSorteos, stickersList, setStickersList
                           </div>
                         `)}
                       </div>
+                      <div class="text-[10px] text-neutral-500 tracking-widest mt-4">\ud83d\udca1 Las ediciones se guardan al click de "\ud83d\udcbe GUARDAR". Crear/borrar es instant\u00e1neo.</div>
                     </div>
                   `}
                   ${section==='stickers' && html`
                     <div>
                       <div class="flex items-center justify-between mb-6">
-                        <div class="display text-3xl">CATÁLOGO DE STICKERS</div>
-                        <button onClick=${()=>setStickersList([...stickersList,{id:Date.now(),name:'NUEVO STICKER',price:1000,emoji:'🆕',desc:''}])}
-                          class="px-5 py-2 bg-brand text-black display tracking-widest text-sm rounded-full hover-glow">+ AGREGAR</button>
+                        <div>
+                          <div class="display text-3xl">CATÁLOGO DE STICKERS</div>
+                          <div class="text-[10px] text-neutral-500 tracking-widest">${dbReady?'✓ SINCRONIZADO CON DB':'⚠ MODO LOCAL'}</div>
+                        </div>
+                        <div class="flex gap-2">
+                          <button onClick=${refreshStickers} class="px-3 py-2 border border-white/20 rounded-full text-xs tracking-widest text-neutral-300 hover:border-brand">↻ RECARGAR</button>
+                          <button onClick=${addSticker} class="px-5 py-2 bg-brand text-black display tracking-widest text-sm rounded-full hover-glow">+ AGREGAR</button>
+                        </div>
                       </div>
                       <div class="space-y-3">
                         ${stickersList.map((s,i)=>html`
                           <div key=${s.id} class="border border-white/10 rounded-2xl p-4 bg-black/30 grid md:grid-cols-12 gap-3 items-center">
-                            <input value=${s.emoji} onChange=${e=>{const n=[...stickersList];n[i].emoji=e.target.value;setStickersList(n);}}
+                            <input value=${s.emoji} onChange=${e=>patchStickerLocal(i,{emoji:e.target.value})}
                               class="md:col-span-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand text-center text-2xl"/>
-                            <input value=${s.name} onChange=${e=>{const n=[...stickersList];n[i].name=e.target.value;setStickersList(n);}}
+                            <input value=${s.name} onChange=${e=>patchStickerLocal(i,{name:e.target.value})}
                               class="md:col-span-3 bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand"/>
-                            <input value=${s.desc} onChange=${e=>{const n=[...stickersList];n[i].desc=e.target.value;setStickersList(n);}}
-                              class="md:col-span-5 bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand text-sm"/>
-                            <input type="number" value=${s.price} onChange=${e=>{const n=[...stickersList];n[i].price=+e.target.value;setStickersList(n);}}
-                              class="md:col-span-2 bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand"/>
-                            <select value=${s.sorteoId||''} onChange=${e=>{const n=[...stickersList];n[i].sorteoId=+e.target.value||null;setStickersList(n);}} class="md:col-span-1 bg-black/40 border border-white/10 rounded-lg px-1 py-2 outline-none focus:border-brand text-[10px]"><option value="">---</option>${sorteos.map(so=>html`<option key=${so.id} value=${so.id}>${so.title.substring(0,12)}</option>`)}</select>
-                            <button onClick=${()=>setStickersList(stickersList.filter(x=>x.id!==s.id))} class="md:col-span-1 text-red-500 hover:text-red-400">✕</button>
+                            <input value=${s.desc} onChange=${e=>patchStickerLocal(i,{desc:e.target.value})}
+                              class="md:col-span-3 bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand text-sm"/>
+                            <input type="number" value=${s.price} onChange=${e=>patchStickerLocal(i,{price:+e.target.value})}
+                              class="md:col-span-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand"/>
+                            <select value=${s.sorteoId||''} onChange=${e=>patchStickerLocal(i,{sorteoId:+e.target.value||null})} class="md:col-span-1 bg-black/40 border border-white/10 rounded-lg px-1 py-2 outline-none focus:border-brand text-[10px]"><option value="">---</option>${sorteos.map(so=>html`<option key=${so.id} value=${so.id}>${so.title.substring(0,12)}</option>`)}</select>
+                            <button onClick=${()=>saveStickerAt(i)} class="md:col-span-2 px-2 py-2 rounded-lg text-xs border border-brand bg-brand/10 text-brand hover:bg-brand hover:text-black">💾 GUARDAR</button>
+                            <button onClick=${()=>{ if(confirm('¿Borrar el sticker "'+s.name+'"?')) deleteStickerById(s.id); }} class="md:col-span-1 text-red-500 hover:text-red-400">✕</button>
                           </div>
                         `)}
                       </div>
+                      <div class="text-[10px] text-neutral-500 tracking-widest mt-4">💡 Borrar marca el sticker como inactivo (soft delete) para preservar histórico de compras pasadas.</div>
                     </div>
                   `}
                   ${section==='participantes' && html`
@@ -1012,43 +1207,153 @@ function Admin({ open, close, sorteos, setSorteos, stickersList, setStickersList
   `;
 }
 
+/* ============== PERSISTENCE ============== */
+const LS_KEY_SORTEOS = 'cep:sorteos:v1';
+const LS_KEY_STICKERS = 'cep:stickers:v1';
+function lsLoad(key, fallback){
+  try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; }
+  catch(e){ console.warn('lsLoad failed', key, e); return fallback; }
+}
+function lsSave(key, value){
+  try { localStorage.setItem(key, JSON.stringify(value)); }
+  catch(e){ console.warn('lsSave failed', key, e); }
+}
+const DEFAULT_SORTEOS = [{
+  id:1,
+  title:'Viaje F1 Brasil 2026',
+  prize:'2 personas a Interlagos',
+  start:'2026-05-01',
+  end:'2026-10-25',
+  active:true,
+  status:'activo',
+  heroCards:[
+    {title:'INTERLAGOS', desc:'4.309 KM \u00b7 71 VUELTAS', color1:'#22c55e', color2:'#eab308'},
+    {title:'SAO PAULO',  desc:'BRASIL \u00b7 NOVIEMBRE 2026', color1:'#eab308', color2:'#ff6a00'},
+    {title:'GRAND PRIX', desc:'EXPERIENCIA VIP', color1:'#ff6a00', color2:'#dc2626'}
+  ],
+  prizes:[
+    {t:'VUELOS',d:'Pasajes ida y vuelta Santiago \u2014 S\u00e3o Paulo para 2 personas'},
+    {t:'HOTEL',d:'4 noches en hotel 4\u2605 con desayuno incluido'},
+    {t:'TICKETS',d:'Entradas oficiales GP Brasil 2026 los 3 d\u00edas'},
+    {t:'TRASLADOS',d:'Aeropuerto, hotel y circuito coordinados'},
+    {t:'PADDOCK',d:'Acceso preferencial zona pit lane'},
+    {t:'SEGURO',d:'Seguro de viaje internacional incluido'}
+  ],
+  bases:[
+    {label:'Organizador', value:'Claudio en Pista (@claudioenpista).'},
+    {label:'Vigencia', value:'del 1 de mayo al 25 de octubre de 2026.'},
+    {label:'Participantes', value:'mayores de 18 a\u00f1os residentes en Chile con c\u00e9dula vigente.'},
+    {label:'Mec\u00e1nica', value:'por cada compra de stickers oficiales en el sitio, el participante recibe n\u00fameros correlativos (1 por cada $1.000 CLP gastados).'},
+    {label:'Sorteo', value:'realizado ante Notario P\u00fablico de Santiago el 1 de noviembre de 2026 y transmitido en vivo por Instagram.'},
+    {label:'Premio', value:'viaje para dos personas al GP de Brasil 2026 (vuelos, hotel 4 noches, entradas 3 d\u00edas, traslados y seguro). No canjeable por dinero.'}
+  ]
+}];
+const DEFAULT_STICKERS = STICKERS.map(s=>({...s,sorteoId:1}));
+function migrateSorteos(arr){
+  if (!Array.isArray(arr) || arr.length === 0) return DEFAULT_SORTEOS;
+  const fb = DEFAULT_SORTEOS[0];
+  return arr.map(s => ({
+    id: s.id || Date.now(),
+    title: s.title || 'Sorteo',
+    prize: s.prize || '',
+    start: s.start || '',
+    end: s.end || '',
+    active: !!s.active,
+    status: s.status || 'activo',
+    heroCards: Array.isArray(s.heroCards) && s.heroCards.length ? s.heroCards : fb.heroCards,
+    prizes:    Array.isArray(s.prizes)    && s.prizes.length    ? s.prizes    : fb.prizes,
+    bases:     Array.isArray(s.bases)     && s.bases.length     ? s.bases     : fb.bases,
+  }));
+}
+
 /* ============== APP ============== */
 function App(){
   const [tab,setTab] = useState('home');
   const [cart,setCart] = useState({});
   const [cartOpen,setCartOpen] = useState(false);
   const [adminOpen,setAdminOpen] = useState(false);
-  const [sorteos,setSorteos] = useState([{
-    id:1,
-    title:'Viaje F1 Brasil 2026',
-    prize:'2 personas a Interlagos',
-    start:'2026-05-01',
-    end:'2026-10-25',
-    active:true,
-    status:'activo',
-    heroCards:[
-      {title:'INTERLAGOS', desc:'4.309 KM \u00b7 71 VUELTAS', color1:'#22c55e', color2:'#eab308'},
-      {title:'SAO PAULO',  desc:'BRASIL \u00b7 NOVIEMBRE 2026', color1:'#eab308', color2:'#ff6a00'},
-      {title:'GRAND PRIX', desc:'EXPERIENCIA VIP', color1:'#ff6a00', color2:'#dc2626'}
-    ],
-    prizes:[
-      {t:'VUELOS',d:'Pasajes ida y vuelta Santiago \u2014 S\u00e3o Paulo para 2 personas'},
-      {t:'HOTEL',d:'4 noches en hotel 4\u2605 con desayuno incluido'},
-      {t:'TICKETS',d:'Entradas oficiales GP Brasil 2026 los 3 d\u00edas'},
-      {t:'TRASLADOS',d:'Aeropuerto, hotel y circuito coordinados'},
-      {t:'PADDOCK',d:'Acceso preferencial zona pit lane'},
-      {t:'SEGURO',d:'Seguro de viaje internacional incluido'}
-    ],
-    bases:[
-      {label:'Organizador', value:'Claudio en Pista (@claudioenpista).'},
-      {label:'Vigencia', value:'del 1 de mayo al 25 de octubre de 2026.'},
-      {label:'Participantes', value:'mayores de 18 a\u00f1os residentes en Chile con c\u00e9dula vigente.'},
-      {label:'Mec\u00e1nica', value:'por cada compra de stickers oficiales en el sitio, el participante recibe n\u00fameros correlativos (1 por cada $1.000 CLP gastados).'},
-      {label:'Sorteo', value:'realizado ante Notario P\u00fablico de Santiago el 1 de noviembre de 2026 y transmitido en vivo por Instagram.'},
-      {label:'Premio', value:'viaje para dos personas al GP de Brasil 2026 (vuelos, hotel 4 noches, entradas 3 d\u00edas, traslados y seguro). No canjeable por dinero.'}
-    ]
-  }]);
-  const [stickersList,setStickersList] = useState(STICKERS.map(s=>({...s,sorteoId:1})));
+  // state arranca con cache de localStorage para render inmediato; despues hidrata del DB
+  const [sorteos,setSorteos] = useState(() => migrateSorteos(lsLoad(LS_KEY_SORTEOS, DEFAULT_SORTEOS)));
+  const [stickersList,setStickersList] = useState(() => {
+    const loaded = lsLoad(LS_KEY_STICKERS, DEFAULT_STICKERS);
+    return Array.isArray(loaded) && loaded.length ? loaded : DEFAULT_STICKERS;
+  });
+  const [dbReady,setDbReady] = useState(false);
+  const [dbError,setDbError] = useState(null);
+
+  // hidratar del DB al montar
+  useEffect(()=>{
+    let cancelled = false;
+    (async ()=>{
+      try {
+        const [s, st] = await Promise.all([dbFetchSorteos(), dbFetchStickers()]);
+        if (cancelled) return;
+        if (s.length) setSorteos(s);
+        if (st.length) setStickersList(st);
+        setDbReady(true);
+      } catch(e){
+        console.warn('DB hydration failed, using localStorage cache', e);
+        if (!cancelled) setDbError(e.message || String(e));
+      }
+    })();
+    return ()=>{ cancelled = true; };
+  }, []);
+
+  // cache persistente en localStorage como fallback offline
+  useEffect(()=>{ lsSave(LS_KEY_SORTEOS, sorteos); }, [sorteos]);
+  useEffect(()=>{ lsSave(LS_KEY_STICKERS, stickersList); }, [stickersList]);
+
+  // ====== mutaciones admin (DB + state) ======
+  async function refreshSorteos(){
+    try { setSorteos(await dbFetchSorteos()); } catch(e){ alert('Error al recargar sorteos: '+e.message); }
+  }
+  async function refreshStickers(){
+    try { setStickersList(await dbFetchStickers()); } catch(e){ alert('Error al recargar stickers: '+e.message); }
+  }
+  // edicion local en vivo (sin red), por keystroke
+  function patchSorteoLocal(idx, patch){
+    setSorteos(prev => prev.map((s,i)=> i===idx ? {...s, ...patch} : s));
+  }
+  function patchStickerLocal(idx, patch){
+    setStickersList(prev => prev.map((s,i)=> i===idx ? {...s, ...patch} : s));
+  }
+  async function saveSorteoAt(idx){
+    const s = sorteos[idx]; if (!s) return;
+    try {
+      const saved = await dbUpsertSorteo(s);
+      setSorteos(prev => prev.map((x,i)=> i===idx ? saved : x));
+    } catch(e){ alert('Error al guardar sorteo: '+e.message); }
+  }
+  async function addSorteo(){
+    const tpl = {
+      title:'Nuevo sorteo', prize:'', start:'', end:'', active:false, status:'activo',
+      heroCards:[{title:'CARD 1',desc:'Descripción',color1:'#ff6a00',color2:'#dc2626'}],
+      prizes:[{t:'PREMIO 1',d:'Descripción'}],
+      bases:[{label:'Organizador',value:'Claudio en Pista'}]
+    };
+    try { const saved = await dbUpsertSorteo(tpl); setSorteos(prev => [...prev, saved]); }
+    catch(e){ alert('Error al crear sorteo: '+e.message); }
+  }
+  async function deleteSorteoById(id){
+    try { await dbDeleteSorteo(id); setSorteos(prev => prev.filter(s => s.id !== id)); }
+    catch(e){ alert('Error al borrar sorteo: '+e.message); }
+  }
+  async function saveStickerAt(idx){
+    const s = stickersList[idx]; if (!s) return;
+    try {
+      const saved = await dbUpsertSticker(s);
+      setStickersList(prev => prev.map((x,i)=> i===idx ? saved : x));
+    } catch(e){ alert('Error al guardar sticker: '+e.message); }
+  }
+  async function addSticker(){
+    const tpl = { name:'NUEVO STICKER', price:1000, emoji:'🆕', desc:'', sorteoId: (sorteos.find(x=>x.active)?.id) || null, position:(stickersList.length+1)*10 };
+    try { const saved = await dbUpsertSticker(tpl); setStickersList(prev => [...prev, saved]); }
+    catch(e){ alert('Error al crear sticker: '+e.message); }
+  }
+  async function deleteStickerById(id){
+    try { await dbDeleteSticker(id); setStickersList(prev => prev.filter(s => s.id !== id)); }
+    catch(e){ alert('Error al borrar sticker: '+e.message); }
+  }
   const cartCount = Object.values(cart).reduce((a,b)=>a+b,0);
   const add = id => setCart(c=>({...c,[id]:(c[id]||0)+1}));
   const sub = id => setCart(c=>{ const n={...c}; n[id]=(n[id]||0)-1; if(n[id]<=0)delete n[id]; return n; });
@@ -1077,7 +1382,12 @@ function App(){
       </footer>
 
       <${CartDrawer} open=${cartOpen} close=${()=>setCartOpen(false)} cart=${cart} add=${add} sub=${sub} stickersList=${stickersList}/>
-      <${Admin} open=${adminOpen} close=${()=>setAdminOpen(false)} sorteos=${sorteos} setSorteos=${setSorteos} stickersList=${stickersList} setStickersList=${setStickersList}/>
+      <${Admin} open=${adminOpen} close=${()=>setAdminOpen(false)}
+        sorteos=${sorteos} stickersList=${stickersList}
+        patchSorteoLocal=${patchSorteoLocal} saveSorteoAt=${saveSorteoAt} addSorteo=${addSorteo} deleteSorteoById=${deleteSorteoById}
+        patchStickerLocal=${patchStickerLocal} saveStickerAt=${saveStickerAt} addSticker=${addSticker} deleteStickerById=${deleteStickerById}
+        refreshSorteos=${refreshSorteos} refreshStickers=${refreshStickers}
+        dbReady=${dbReady} dbError=${dbError}/>
     </${React.Fragment}>
   `;
 }
