@@ -580,7 +580,15 @@ function StickerCard({ s, qty, add, sub }){
   `;
 }
 
-function Stickers({ cart, add, sub }){
+function Stickers({ cart, add, sub, stickersList, activeSorteo }){
+  const all = stickersList && stickersList.length ? stickersList : STICKERS;
+  // si hay sorteo activo, mostrar solo stickers vinculados a \u00e9l (o sin v\u00ednculo, como fallback)
+  const visible = activeSorteo
+    ? all.filter(s => !s.sorteoId || s.sorteoId === activeSorteo.id)
+    : all;
+  const subtitle = activeSorteo
+    ? `Cada $1.000 = 1 n\u00famero para el sorteo ${activeSorteo.title}. Stock limitado. Env\u00edo a todo Chile.`
+    : 'Cada $1.000 = 1 n\u00famero para el sorteo. Stock limitado. Env\u00edo a todo Chile.';
   return html`
     <section class="px-6 py-32 relative">
       <div class="max-w-7xl mx-auto">
@@ -591,11 +599,17 @@ function Stickers({ cart, add, sub }){
             <div class="text-xs tracking-[0.4em] text-brand mb-3">// TIENDA OFICIAL</div>
             <h2 class="display text-7xl md:text-9xl leading-none">STICKERS<br/><span class="text-brand">OFICIALES</span></h2>
           </div>
-          <div class="text-sm text-neutral-400 max-w-xs">Cada $1.000 = 1 número para el sorteo F1 Brasil 2026. Stock limitado. Envío a todo Chile.</div>
+          <div class="text-sm text-neutral-400 max-w-xs">${subtitle}</div>
         </${motion.div}>
-        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          ${STICKERS.map(s => html`<${StickerCard} key=${s.id} s=${s} qty=${cart[s.id]||0} add=${add} sub=${sub}/>`)}
-        </div>
+        ${visible.length === 0 ? html`
+          <div class="text-center py-20 text-neutral-500 border border-white/10 rounded-3xl bg-white/5">
+            No hay stickers disponibles para este sorteo todav\u00eda.
+          </div>
+        ` : html`
+          <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            ${visible.map(s => html`<${StickerCard} key=${s.id} s=${s} qty=${cart[s.id]||0} add=${add} sub=${sub}/>`)}
+          </div>
+        `}
       </div>
     </section>
   `;
@@ -1052,7 +1066,7 @@ function App(){
         </${React.Fragment}>
       `}
       ${tab==='sorteo' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase cursor-pointer">\u2190 VOLVER A INICIO</button></div><${Sorteo} goto=${goto} sorteos=${sorteos}/></div>`}
-      ${tab==='stickers' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase cursor-pointer">\u2190 VOLVER A INICIO</button></div><${Stickers} cart=${cart} add=${add} sub=${sub}/></div>`}
+      ${tab==='stickers' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase cursor-pointer">\u2190 VOLVER A INICIO</button></div><${Stickers} cart=${cart} add=${add} sub=${sub} stickersList=${stickersList} activeSorteo=${activeSorteo}/></div>`}
 
       <footer class="border-t border-white/10 mt-20 py-10 text-center">
         <div class="display text-2xl text-brand">CLAUDIO EN PISTA</div>
