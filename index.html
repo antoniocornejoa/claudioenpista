@@ -846,15 +846,58 @@ function Ruleta(){
   `;
 }
 
+// Validador de RUT chileno con digito verificador
+function validateRUT(rut){
+  if (!rut) return true; // opcional
+  const clean = String(rut).replace(/[^0-9kK]/g,'').toUpperCase();
+  if (clean.length < 2) return false;
+  const body = clean.slice(0,-1), dv = clean.slice(-1);
+  if (!/^\d+$/.test(body)) return false;
+  let sum = 0, mul = 2;
+  for (let i = body.length-1; i >= 0; i--){ sum += parseInt(body[i],10)*mul; mul = mul===7?2:mul+1; }
+  const r = 11 - (sum % 11);
+  const expected = r===11?'0':r===10?'K':String(r);
+  return dv === expected;
+}
+
 function CartDrawer({ open, close, cart, add, sub, stickersList }){
-  const [stage,setStage] = useState('idle');
+  const [stage,setStage] = useState('idle'); // idle | form | redirecting | error | done
+  const [form,setForm] = useState({name:'',email:'',rut:'',phone:''});
+  const [errMsg,setErrMsg] = useState('');
   const source = stickersList && stickersList.length ? stickersList : STICKERS;
   const items = Object.entries(cart)
     .map(([id,q])=>{ const s = source.find(x=>x.id===+id); return s ? {...s, qty:q} : null; })
     .filter(Boolean);
   const total = items.reduce((a,b)=>a+(b.price||0)*b.qty,0);
-  function pay(){ setStage('pay'); setTimeout(()=>setStage('done'),2200); }
-  function reset(){ setStage('idle'); close(); Object.keys(cart).forEach(k=>sub(+k)); }
+
+  function goToForm(){ setErrMsg(''); setStage('form'); }
+  async function submitCheckout(){
+    setErrMsg('');
+    if (!form.name.trim()) return setErrMsg('Ingresá tu nombre');
+    if (!/\S+@\S+\.\S+/.test(form.email)) return setErrMsg('Email inválido');
+    if (form.rut && !validateRUT(form.rut)) return setErrMsg('RUT inválido (revisá dígito verificador)');
+    setStage('redirecting');
+    try {
+      const payload = {
+        items: items.map(it=>({ sticker_id: it.id, qty: it.qty })),
+        customer: { name: form.name.trim(), email: form.email.trim().toLowerCase(), rut: form.rut.trim()||null, phone: form.phone.trim()||null }
+      };
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/create-checkout`, {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok || !data.url) throw new Error(data.error || 'Error al crear sesión de pago');
+      // limpiar carrito local antes de salir; la compra ya quedo "pending" en DB
+      Object.keys(cart).forEach(k=>sub(+k));
+      window.location.href = data.url;
+    } catch(e){
+      setErrMsg(e.message || 'Error inesperado');
+      setStage('form');
+    }
+  }
+  function reset(){ setStage('idle'); setErrMsg(''); setForm({name:'',email:'',rut:'',phone:''}); close(); Object.keys(cart).forEach(k=>sub(+k)); }
   return html`
     <${AnimatePresence}>
       ${open && html`
@@ -867,19 +910,36 @@ function CartDrawer({ open, close, cart, add, sub, stickersList }){
               <div class="display text-2xl">CARRITO</div>
               <button onClick=${close} class="text-2xl hover:text-brand">✕</button>
             </div>
-            ${stage==='done' ? html`
-              <div class="p-10 text-center">
-                <${motion.div} initial=${{scale:0}} animate=${{scale:1}} transition=${{type:'spring'}}
-                  class="w-20 h-20 bg-brand rounded-full flex items-center justify-center mx-auto text-4xl text-black">✓</${motion.div}>
-                <div class="display text-3xl mt-6">PAGO EXITOSO</div>
-                <p class="text-neutral-400 mt-3">Recibirás tus números de participación por email. ¡Mucha suerte!</p>
-                <button onClick=${reset} class="mt-8 px-8 py-3 bg-brand text-black display tracking-widest rounded-full hover-glow">CERRAR</button>
-              </div>
-            ` : stage==='pay' ? html`
+            ${stage==='redirecting' ? html`
               <div class="p-10 text-center">
                 <div class="text-7xl animate-pulse">💳</div>
-                <div class="display text-2xl mt-6">PROCESANDO STRIPE...</div>
+                <div class="display text-2xl mt-6">REDIRIGIENDO A STRIPE...</div>
                 <div class="text-sm text-neutral-500 mt-2">$${total.toLocaleString('es-CL')}</div>
+                <div class="text-[10px] text-neutral-600 mt-4 tracking-widest">NO CIERRES ESTA VENTANA</div>
+              </div>
+            ` : stage==='form' ? html`
+              <div class="p-6 space-y-4">
+                <div class="text-xs tracking-[0.4em] text-brand">// DATOS DEL COMPRADOR</div>
+                <div class="text-sm text-neutral-400">Necesitamos estos datos para asignarte tus números de sorteo y enviarte la confirmación.</div>
+                <input value=${form.name} onChange=${e=>setForm(f=>({...f,name:e.target.value}))}
+                  placeholder="Nombre completo *"
+                  class="w-full bg-black/40 border border-white/10 rounded-full px-5 py-3 outline-none focus:border-brand"/>
+                <input type="email" value=${form.email} onChange=${e=>setForm(f=>({...f,email:e.target.value}))}
+                  placeholder="Email *"
+                  class="w-full bg-black/40 border border-white/10 rounded-full px-5 py-3 outline-none focus:border-brand"/>
+                <input value=${form.rut} onChange=${e=>setForm(f=>({...f,rut:e.target.value}))}
+                  placeholder="RUT (opcional, formato 12.345.678-9)"
+                  class="w-full bg-black/40 border border-white/10 rounded-full px-5 py-3 outline-none focus:border-brand"/>
+                <input value=${form.phone} onChange=${e=>setForm(f=>({...f,phone:e.target.value}))}
+                  placeholder="Teléfono (opcional)"
+                  class="w-full bg-black/40 border border-white/10 rounded-full px-5 py-3 outline-none focus:border-brand"/>
+                ${errMsg && html`<div class="text-xs text-red-400 text-center">${errMsg}</div>`}
+                <div class="border-t border-white/10 pt-4 space-y-2">
+                  <div class="flex justify-between display text-xl"><span>TOTAL</span><span class="text-brand">$${total.toLocaleString('es-CL')}</span></div>
+                  <div class="text-xs tracking-widest text-neutral-500">🏁 ${Math.floor(total/1000)} NÚMEROS PARA EL SORTEO</div>
+                </div>
+                <button onClick=${submitCheckout} class="w-full py-4 bg-brand text-black display tracking-widest text-lg rounded-full hover-glow">IR A PAGAR →</button>
+                <button onClick=${()=>setStage('idle')} class="w-full py-2 text-xs text-neutral-500 tracking-widest hover:text-brand">← VOLVER AL CARRITO</button>
               </div>
             ` : items.length===0 ? html`
               <div class="p-10 text-center text-neutral-500">Tu carrito está vacío</div>
@@ -903,7 +963,7 @@ function CartDrawer({ open, close, cart, add, sub, stickersList }){
               <div class="p-6 border-t border-white/10 space-y-4">
                 <div class="flex justify-between display text-2xl"><span>TOTAL</span><span class="text-brand">$${total.toLocaleString('es-CL')}</span></div>
                 <div class="text-xs tracking-widest text-neutral-500">🏁 OBTIENES ${Math.floor(total/1000)} NÚMEROS PARA EL SORTEO</div>
-                <button onClick=${pay} class="w-full py-4 bg-brand text-black display tracking-widest text-lg rounded-full hover-glow">💳 PAGAR CON STRIPE</button>
+                <button onClick=${goToForm} class="w-full py-4 bg-brand text-black display tracking-widest text-lg rounded-full hover-glow">💳 PAGAR CON STRIPE</button>
               </div>
             `}
           </${motion.div}>
@@ -1272,6 +1332,25 @@ function App(){
   const [cart,setCart] = useState({});
   const [cartOpen,setCartOpen] = useState(false);
   const [adminOpen,setAdminOpen] = useState(false);
+  const [checkoutResult,setCheckoutResult] = useState(null); // 'ok' | 'cancel' | null
+  const [checkoutCompraId,setCheckoutCompraId] = useState(null);
+
+  // Detectar retorno de Stripe Checkout via query params
+  useEffect(()=>{
+    const p = new URLSearchParams(window.location.search);
+    const result = p.get('checkout');
+    const compraId = p.get('compra');
+    if (result === 'ok' || result === 'cancel'){
+      setCheckoutResult(result);
+      setCheckoutCompraId(compraId);
+      // limpiar URL para no re-mostrar al recargar
+      const url = new URL(window.location.href);
+      url.searchParams.delete('checkout');
+      url.searchParams.delete('compra');
+      url.searchParams.delete('session');
+      window.history.replaceState({}, '', url.toString());
+    }
+  }, []);
   // state arranca con cache de localStorage para render inmediato; despues hidrata del DB
   const [sorteos,setSorteos] = useState(() => migrateSorteos(lsLoad(LS_KEY_SORTEOS, DEFAULT_SORTEOS)));
   const [stickersList,setStickersList] = useState(() => {
@@ -1382,6 +1461,27 @@ function App(){
       </footer>
 
       <${CartDrawer} open=${cartOpen} close=${()=>setCartOpen(false)} cart=${cart} add=${add} sub=${sub} stickersList=${stickersList}/>
+
+      ${checkoutResult && html`
+        <div class="fixed inset-0 z-[70] bg-black/90 backdrop-blur flex items-center justify-center p-6" onClick=${()=>setCheckoutResult(null)}>
+          <${motion.div} initial=${{scale:.7,opacity:0}} animate=${{scale:1,opacity:1}}
+            class="max-w-md w-full border border-brand/40 rounded-3xl bg-neutral-950 p-10 text-center neon-border" onClick=${e=>e.stopPropagation()}>
+            ${checkoutResult==='ok' ? html`
+              <${motion.div} initial=${{scale:0}} animate=${{scale:1}} transition=${{type:'spring',stiffness:200}}
+                class="w-20 h-20 bg-brand rounded-full flex items-center justify-center mx-auto text-4xl text-black">✓</${motion.div}>
+              <div class="display text-3xl mt-6">PAGO EXITOSO</div>
+              <p class="text-neutral-400 mt-3 text-sm">Recibimos tu pago. Te enviaremos un email con tus números de participación en los próximos minutos.</p>
+              ${checkoutCompraId && html`<div class="text-[10px] tracking-widest text-neutral-600 mt-4">COMPRA #${checkoutCompraId}</div>`}
+              <button onClick=${()=>setCheckoutResult(null)} class="mt-8 px-8 py-3 bg-brand text-black display tracking-widest rounded-full hover-glow">CERRAR</button>
+            ` : html`
+              <div class="w-20 h-20 border-2 border-neutral-500 rounded-full flex items-center justify-center mx-auto text-4xl text-neutral-500">✕</div>
+              <div class="display text-3xl mt-6">PAGO CANCELADO</div>
+              <p class="text-neutral-400 mt-3 text-sm">No procesamos ningún cobro. Podés volver a intentarlo cuando quieras.</p>
+              <button onClick=${()=>setCheckoutResult(null)} class="mt-8 px-8 py-3 border border-white/20 hover:border-brand display tracking-widest rounded-full">VOLVER AL SITIO</button>
+            `}
+          </${motion.div}>
+        </div>
+      `}
       <${Admin} open=${adminOpen} close=${()=>setAdminOpen(false)}
         sorteos=${sorteos} stickersList=${stickersList}
         patchSorteoLocal=${patchSorteoLocal} saveSorteoAt=${saveSorteoAt} addSorteo=${addSorteo} deleteSorteoById=${deleteSorteoById}
