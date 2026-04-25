@@ -1024,7 +1024,8 @@ function CartDrawer({ open, close, cart, add, sub, stickersList }){
 function Admin({ open, close, sorteos, stickersList,
                  patchSorteoLocal, saveSorteoAt, addSorteo, deleteSorteoById,
                  patchStickerLocal, saveStickerAt, addSticker, deleteStickerById,
-                 refreshSorteos, refreshStickers, dbReady, dbError }){
+                 refreshSorteos, refreshStickers, dbReady, dbError,
+                 isBusy = ()=>false, showToast = ()=>{} }){
   const [user,setUser] = useState(null);
   const [authMode,setAuthMode] = useState('signin'); // 'signin' | 'signup'
   const [email,setEmail] = useState('');
@@ -1168,7 +1169,7 @@ function Admin({ open, close, sorteos, stickersList,
                         </div>
                         <div class="flex gap-2">
                           <button onClick=${refreshSorteos} class="px-3 py-2 border border-white/20 rounded-full text-xs tracking-widest text-neutral-300 hover:border-brand">\u21bb RECARGAR</button>
-                          <button onClick=${addSorteo} class="px-5 py-2 bg-brand text-black display tracking-widest text-sm rounded-full hover-glow">+ NUEVO</button>
+                          <button onClick=${addSorteo} disabled=${isBusy('sorteo-add')} class="px-5 py-2 bg-brand text-black display tracking-widest text-sm rounded-full hover-glow disabled:opacity-50">${isBusy('sorteo-add')?'...':'+ NUEVO'}</button>
                         </div>
                       </div>
                       <div class="space-y-4">
@@ -1183,8 +1184,8 @@ function Admin({ open, close, sorteos, stickersList,
                               <button onClick=${()=>togglePanel(i,'hero')} class=${"px-2 py-1 rounded-lg text-xs border "+(isPanel(i,'hero')?"border-brand text-brand":"border-white/20 text-neutral-400")}>${isPanel(i,'hero')?'CERRAR':'HERO CARDS'}</button>
                               <button onClick=${()=>togglePanel(i,'prizes')} class=${"px-2 py-1 rounded-lg text-xs border "+(isPanel(i,'prizes')?"border-brand text-brand":"border-white/20 text-neutral-400")}>${isPanel(i,'prizes')?'CERRAR':'PREMIOS'}</button>
                               <button onClick=${()=>togglePanel(i,'bases')} class=${"px-2 py-1 rounded-lg text-xs border "+(isPanel(i,'bases')?"border-brand text-brand":"border-white/20 text-neutral-400")}>${isPanel(i,'bases')?'CERRAR':'BASES'}</button>
-                              <button onClick=${()=>saveSorteoAt(i)} class="px-3 py-1 rounded-lg text-xs border border-brand bg-brand/10 text-brand hover:bg-brand hover:text-black">\ud83d\udcbe GUARDAR</button>
-                              <button onClick=${()=>{ if(confirm('\u00bfBorrar el sorteo "'+s.title+'"? No se puede deshacer.')) deleteSorteoById(s.id); }} class="text-red-500 hover:text-red-400 text-lg">\u2715</button>
+                              <button onClick=${()=>saveSorteoAt(i)} disabled=${isBusy('sorteo:'+s.id)} class="px-3 py-1 rounded-lg text-xs border border-brand bg-brand/10 text-brand hover:bg-brand hover:text-black disabled:opacity-50 disabled:cursor-wait">${isBusy('sorteo:'+s.id)?'GUARDANDO...':'\ud83d\udcbe GUARDAR'}</button>
+                              <button onClick=${()=>{ if(confirm('\u00bfBorrar el sorteo "'+s.title+'"? No se puede deshacer.')) deleteSorteoById(s.id); }} disabled=${isBusy('sorteo-del:'+s.id)} class="text-red-500 hover:text-red-400 text-lg disabled:opacity-50">${isBusy('sorteo-del:'+s.id)?'\u2026':'\u2715'}</button>
                             </div>
                             ${isPanel(i,'hero') && html`
                               <div class="border-t border-white/10 pt-3">
@@ -1248,7 +1249,7 @@ function Admin({ open, close, sorteos, stickersList,
                         </div>
                         <div class="flex gap-2">
                           <button onClick=${refreshStickers} class="px-3 py-2 border border-white/20 rounded-full text-xs tracking-widest text-neutral-300 hover:border-brand">↻ RECARGAR</button>
-                          <button onClick=${addSticker} class="px-5 py-2 bg-brand text-black display tracking-widest text-sm rounded-full hover-glow">+ AGREGAR</button>
+                          <button onClick=${addSticker} disabled=${isBusy('sticker-add')} class="px-5 py-2 bg-brand text-black display tracking-widest text-sm rounded-full hover-glow disabled:opacity-50">${isBusy('sticker-add')?'...':'+ AGREGAR'}</button>
                         </div>
                       </div>
                       <div class="space-y-4">
@@ -1308,8 +1309,8 @@ function Admin({ open, close, sorteos, stickersList,
                                   </select>
                                 </div>
                                 <div class="md:col-span-4 flex items-end gap-2">
-                                  <button onClick=${()=>saveStickerAt(i)} class="flex-1 py-2 rounded-lg text-xs border border-brand bg-brand/10 text-brand hover:bg-brand hover:text-black tracking-widest display">💾 GUARDAR</button>
-                                  <button onClick=${()=>{ if(confirm('¿Borrar el sticker "'+s.name+'"? Se marca como inactivo.')) deleteStickerById(s.id); }} class="px-4 py-2 rounded-lg text-red-500 hover:text-red-400 hover:bg-red-900/20 border border-red-900/40">✕</button>
+                                  <button onClick=${()=>saveStickerAt(i)} disabled=${isBusy('sticker:'+s.id)} class="flex-1 py-2 rounded-lg text-xs border border-brand bg-brand/10 text-brand hover:bg-brand hover:text-black tracking-widest display disabled:opacity-50 disabled:cursor-wait">${isBusy('sticker:'+s.id)?'GUARDANDO...':'💾 GUARDAR'}</button>
+                                  <button onClick=${()=>{ if(confirm('¿Borrar el sticker "'+s.name+'"? Se marca como inactivo.')) deleteStickerById(s.id); }} disabled=${isBusy('sticker-del:'+s.id)} class="px-4 py-2 rounded-lg text-red-500 hover:text-red-400 hover:bg-red-900/20 border border-red-900/40 disabled:opacity-50">${isBusy('sticker-del:'+s.id)?'…':'✕'}</button>
                                 </div>
                               </div>
                             </div>
@@ -1475,6 +1476,18 @@ function App(){
   const [adminOpen,setAdminOpen] = useState(false);
   const [checkoutResult,setCheckoutResult] = useState(null); // 'ok' | 'cancel' | null
   const [checkoutCompraId,setCheckoutCompraId] = useState(null);
+  const [toasts,setToasts] = useState([]); // [{id, msg, type}]
+  const [busyKeys,setBusyKeys] = useState(new Set());
+
+  function showToast(msg, type='ok'){
+    const id = Date.now() + Math.random();
+    setToasts(prev => [...prev, { id, msg, type }]);
+    setTimeout(()=>setToasts(prev => prev.filter(t => t.id !== id)), 3500);
+  }
+  function setBusy(key, busy){
+    setBusyKeys(prev => { const n = new Set(prev); if (busy) n.add(key); else n.delete(key); return n; });
+  }
+  const isBusy = (key) => busyKeys.has(key);
 
   // Detectar retorno de Stripe Checkout via query params
   useEffect(()=>{
@@ -1525,12 +1538,13 @@ function App(){
 
   // ====== mutaciones admin (DB + state) ======
   async function refreshSorteos(){
-    try { setSorteos(await dbFetchSorteos()); } catch(e){ alert('Error al recargar sorteos: '+e.message); }
+    try { setSorteos(await dbFetchSorteos()); showToast('✓ Sorteos recargados'); }
+    catch(e){ showToast('Error al recargar sorteos: '+e.message, 'err'); }
   }
   async function refreshStickers(){
-    try { setStickersList(await dbFetchStickers()); } catch(e){ alert('Error al recargar stickers: '+e.message); }
+    try { setStickersList(await dbFetchStickers()); showToast('✓ Stickers recargados'); }
+    catch(e){ showToast('Error al recargar stickers: '+e.message, 'err'); }
   }
-  // edicion local en vivo (sin red), por keystroke
   function patchSorteoLocal(idx, patch){
     setSorteos(prev => prev.map((s,i)=> i===idx ? {...s, ...patch} : s));
   }
@@ -1539,40 +1553,54 @@ function App(){
   }
   async function saveSorteoAt(idx){
     const s = sorteos[idx]; if (!s) return;
+    const key = 'sorteo:'+(s.id||'new'); setBusy(key, true);
     try {
       const saved = await dbUpsertSorteo(s);
       setSorteos(prev => prev.map((x,i)=> i===idx ? saved : x));
-    } catch(e){ alert('Error al guardar sorteo: '+e.message); }
+      showToast(`✓ Sorteo "${saved.title}" guardado`);
+    } catch(e){ showToast('Error al guardar: '+e.message, 'err'); }
+    setBusy(key, false);
   }
   async function addSorteo(){
+    setBusy('sorteo-add', true);
     const tpl = {
       title:'Nuevo sorteo', prize:'', start:'', end:'', active:false, status:'activo',
       heroCards:[{title:'CARD 1',desc:'Descripción',color1:'#ff6a00',color2:'#dc2626'}],
       prizes:[{t:'PREMIO 1',d:'Descripción'}],
       bases:[{label:'Organizador',value:'Claudio en Pista'}]
     };
-    try { const saved = await dbUpsertSorteo(tpl); setSorteos(prev => [...prev, saved]); }
-    catch(e){ alert('Error al crear sorteo: '+e.message); }
+    try { const saved = await dbUpsertSorteo(tpl); setSorteos(prev => [...prev, saved]); showToast('✓ Sorteo creado'); }
+    catch(e){ showToast('Error al crear sorteo: '+e.message, 'err'); }
+    setBusy('sorteo-add', false);
   }
   async function deleteSorteoById(id){
-    try { await dbDeleteSorteo(id); setSorteos(prev => prev.filter(s => s.id !== id)); }
-    catch(e){ alert('Error al borrar sorteo: '+e.message); }
+    setBusy('sorteo-del:'+id, true);
+    try { await dbDeleteSorteo(id); setSorteos(prev => prev.filter(s => s.id !== id)); showToast('✓ Sorteo eliminado'); }
+    catch(e){ showToast('Error al borrar sorteo: '+e.message, 'err'); }
+    setBusy('sorteo-del:'+id, false);
   }
   async function saveStickerAt(idx){
     const s = stickersList[idx]; if (!s) return;
+    const key = 'sticker:'+(s.id||'new'); setBusy(key, true);
     try {
       const saved = await dbUpsertSticker(s);
       setStickersList(prev => prev.map((x,i)=> i===idx ? saved : x));
-    } catch(e){ alert('Error al guardar sticker: '+e.message); }
+      showToast(`✓ Sticker "${saved.name}" guardado`);
+    } catch(e){ showToast('Error al guardar: '+e.message, 'err'); }
+    setBusy(key, false);
   }
   async function addSticker(){
+    setBusy('sticker-add', true);
     const tpl = { name:'NUEVO STICKER', price:1000, emoji:'🆕', desc:'', sorteoId: (sorteos.find(x=>x.active)?.id) || null, position:(stickersList.length+1)*10 };
-    try { const saved = await dbUpsertSticker(tpl); setStickersList(prev => [...prev, saved]); }
-    catch(e){ alert('Error al crear sticker: '+e.message); }
+    try { const saved = await dbUpsertSticker(tpl); setStickersList(prev => [...prev, saved]); showToast('✓ Sticker creado'); }
+    catch(e){ showToast('Error al crear sticker: '+e.message, 'err'); }
+    setBusy('sticker-add', false);
   }
   async function deleteStickerById(id){
-    try { await dbDeleteSticker(id); setStickersList(prev => prev.filter(s => s.id !== id)); }
-    catch(e){ alert('Error al borrar sticker: '+e.message); }
+    setBusy('sticker-del:'+id, true);
+    try { await dbDeleteSticker(id); setStickersList(prev => prev.filter(s => s.id !== id)); showToast('✓ Sticker eliminado'); }
+    catch(e){ showToast('Error al borrar sticker: '+e.message, 'err'); }
+    setBusy('sticker-del:'+id, false);
   }
   const cartCount = Object.values(cart).reduce((a,b)=>a+b,0);
   const add = id => setCart(c=>({...c,[id]:(c[id]||0)+1}));
@@ -1628,7 +1656,19 @@ function App(){
         patchSorteoLocal=${patchSorteoLocal} saveSorteoAt=${saveSorteoAt} addSorteo=${addSorteo} deleteSorteoById=${deleteSorteoById}
         patchStickerLocal=${patchStickerLocal} saveStickerAt=${saveStickerAt} addSticker=${addSticker} deleteStickerById=${deleteStickerById}
         refreshSorteos=${refreshSorteos} refreshStickers=${refreshStickers}
-        dbReady=${dbReady} dbError=${dbError}/>
+        dbReady=${dbReady} dbError=${dbError} isBusy=${isBusy} showToast=${showToast}/>
+
+      <${AnimatePresence}>
+        ${toasts.map(t => html`
+          <${motion.div} key=${t.id}
+            initial=${{opacity:0, y:20, scale:.9}} animate=${{opacity:1, y:0, scale:1}} exit=${{opacity:0, y:-10, scale:.95}}
+            transition=${{type:'spring', stiffness:400, damping:25}}
+            class=${"fixed left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-full backdrop-blur-md border display tracking-widest text-sm shadow-2xl "+(t.type==='err'?'bg-red-950/80 border-red-500/60 text-red-200':'bg-green-950/80 border-green-500/60 text-green-100')}
+            style=${{ top: `${20 + toasts.indexOf(t)*60}px` }}>
+            ${t.msg}
+          </${motion.div}>
+        `)}
+      </${AnimatePresence}>
     </${React.Fragment}>
   `;
 }
