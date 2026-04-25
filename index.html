@@ -411,7 +411,7 @@ function Counter({ to, duration=2, suffix='' }){
 
 /* ============== COMPONENTS ============== */
 function Nav({ tab, setTab, cartCount, openCart, openAdmin }){
-  const tabs = [['home','INICIO'],['sorteo','SORTEO'],['stickers','TIENDA'],['bases','BASES'],['ruleta','RULETA']];
+  const tabs = [['home','INICIO'],['sorteo','SORTEO'],['stickers','TIENDA']];
   return html`
     <header class="fixed top-0 left-0 right-0 z-30 px-6 py-4 backdrop-blur-md bg-black/40 border-b border-white/5">
       <div class="max-w-7xl mx-auto flex items-center justify-between gap-4">
@@ -509,7 +509,7 @@ function Marquee(){
   `;
 }
 
-function HorizontalGallery({ goto }){
+function HorizontalGallery({ goto, heroCards }){
   const trackRef = useRef(null);
   const sectionRef = useRef(null);
   useEffect(()=>{
@@ -522,13 +522,12 @@ function HorizontalGallery({ goto }){
     });
     return ()=>ctx.revert();
   },[]);
-  const items = [
-    {t:'INTERLAGOS',d:'4.309 KM · 71 VUELTAS',c:'from-green-500/30 to-yellow-500/20'},
-    {t:'SAO PAULO',d:'BRASIL · NOVIEMBRE 2026',c:'from-yellow-500/30 to-brand/20'},
-    {t:'GRAND PRIX',d:'EXPERIENCIA VIP',c:'from-brand/40 to-red-700/20'},
-    {t:'2 PERSONAS',d:'VUELO + HOTEL + TICKETS',c:'from-blue-500/30 to-purple-500/20'},
-    {t:'PADDOCK',d:'ACCESO PREFERENCIAL',c:'from-red-600/40 to-brand/20'},
+  const defaults = [
+    {title:'INTERLAGOS', desc:'4.309 KM · 71 VUELTAS', color1:'#22c55e', color2:'#eab308'},
+    {title:'SAO PAULO',  desc:'BRASIL · NOVIEMBRE 2026', color1:'#eab308', color2:'#ff6a00'},
+    {title:'GRAND PRIX', desc:'EXPERIENCIA VIP', color1:'#ff6a00', color2:'#dc2626'},
   ];
+  const items = (heroCards && heroCards.length) ? heroCards : defaults;
   return html`
     <section ref=${sectionRef} class="h-screen overflow-hidden flex items-center">
       <div class="px-6 max-w-7xl mx-auto w-full">
@@ -538,13 +537,15 @@ function HorizontalGallery({ goto }){
         </div>
         <div ref=${trackRef} class="h-track">
           ${items.map((it,i)=>html`
-            <div key=${i} onClick=${()=>goto('sorteo')} class="shrink-0 w-[420px] h-[420px] rounded-3xl border border-white/10 bg-gradient-to-br ${it.c} p-8 flex flex-col justify-between relative overflow-hidden hover-glow cursor-pointer">
+            <div key=${i} onClick=${()=>goto('sorteo')}
+                 style=${{background:`linear-gradient(135deg, ${(it.color1||'#ff6a00')}55, ${(it.color2||'#dc2626')}33)`}}
+                 class="shrink-0 w-[420px] h-[420px] rounded-3xl border border-white/10 p-8 flex flex-col justify-between relative overflow-hidden hover-glow cursor-pointer">
               <div class="absolute inset-0 checker"></div>
               <div class="relative">
                 <div class="text-[10px] tracking-[0.4em] text-neutral-300">PREMIO · 0${i+1}</div>
-                <div class="display text-5xl mt-3">${it.t}</div>
+                <div class="display text-5xl mt-3">${it.title}</div>
               </div>
-              <div class="relative text-sm tracking-widest text-neutral-200">${it.d}</div>
+              <div class="relative text-sm tracking-widest text-neutral-200">${it.desc}</div>
             </div>
           `)}
         </div>
@@ -608,6 +609,16 @@ function Sorteo({ goto, sorteos }){
   const prizes=active&&active.prizes&&active.prizes.length?active.prizes:dp;
   const title=active?active.title:'VIAJE A INTERLAGOS';
   const w=title.toUpperCase().split(' '),lw=w.pop(),fw=w.join(' ');
+  const dbases=[
+    {label:'Organizador', value:'Claudio en Pista (@claudioenpista).'},
+    {label:'Vigencia', value:'según fechas del sorteo activo.'},
+    {label:'Participantes', value:'mayores de 18 años residentes en Chile con cédula vigente.'},
+    {label:'Mecánica', value:'por cada compra de stickers oficiales en el sitio, el participante recibe números correlativos (1 por cada $1.000 CLP gastados).'},
+    {label:'Sorteo', value:'realizado ante Notario Público de Santiago y transmitido en vivo por Instagram.'},
+    {label:'Premio', value:'según descripción del sorteo activo. No canjeable por dinero.'},
+  ];
+  const bases = active && active.bases && active.bases.length ? active.bases : dbases;
+  const basesHeader = (active ? active.title.toUpperCase() : 'SORTEO') + ' — BASES Y CONDICIONES';
   return html`
     <section class="px-6 py-32 relative">
       <${motion.div} style=${{y}} class="absolute inset-0 grain pointer-events-none"></${motion.div}>
@@ -627,25 +638,17 @@ function Sorteo({ goto, sorteos }){
         <div class="mt-12 text-center">
           <button onClick=${()=>goto('stickers')} class="px-10 py-5 bg-brand text-black display tracking-widest rounded-full text-lg hover-glow">QUIERO PARTICIPAR \u2192</button>
         </div>
-      </div>
-    </section>
-  `;
-}
-function Bases(){
-  return html`
-    <section class="px-6 py-32 relative">
-      <div class="max-w-4xl mx-auto">
-        <div class="text-xs tracking-[0.4em] text-brand mb-3">// LEGAL</div>
-        <h2 class="display text-7xl md:text-9xl leading-none mb-12">BASES<br/><span class="text-brand">NOTARIALES</span></h2>
-        <div class="border border-white/10 rounded-3xl p-10 bg-white/5 backdrop-blur space-y-5 text-neutral-300 leading-relaxed neon-border">
-          <div class="text-[10px] tracking-[0.4em] text-brand">SORTEO VIAJE F1 BRASIL 2026 — BASES Y CONDICIONES</div>
-          <p><strong class="text-white">Organizador:</strong> Claudio en Pista (@claudioenpista).</p>
-          <p><strong class="text-white">Vigencia:</strong> del 1 de mayo al 25 de octubre de 2026.</p>
-          <p><strong class="text-white">Participantes:</strong> mayores de 18 años residentes en Chile con cédula vigente.</p>
-          <p><strong class="text-white">Mecánica:</strong> por cada compra de stickers oficiales en el sitio, el participante recibe números correlativos (1 por cada $1.000 CLP gastados).</p>
-          <p><strong class="text-white">Sorteo:</strong> realizado ante Notario Público de Santiago el 1 de noviembre de 2026 y transmitido en vivo por Instagram.</p>
-          <p><strong class="text-white">Premio:</strong> viaje para dos personas al GP de Brasil 2026 (vuelos, hotel 4 noches, entradas 3 días, traslados y seguro). No canjeable por dinero.</p>
-          <button class="mt-4 px-6 py-3 bg-brand text-black display tracking-widest rounded-full hover-glow">DESCARGAR PDF NOTARIADO</button>
+
+        <div class="mt-32 max-w-4xl mx-auto">
+          <div class="text-xs tracking-[0.4em] text-brand mb-3">// LEGAL</div>
+          <h2 class="display text-6xl md:text-8xl leading-none mb-10">BASES<br/><span class="text-brand">NOTARIALES</span></h2>
+          <div class="border border-white/10 rounded-3xl p-10 bg-white/5 backdrop-blur space-y-5 text-neutral-300 leading-relaxed neon-border">
+            <div class="text-[10px] tracking-[0.4em] text-brand">${basesHeader}</div>
+            ${bases.map((b,i)=>html`
+              <p key=${i}><strong class="text-white">${b.label}:</strong> ${b.value}</p>
+            `)}
+            <button class="mt-4 px-6 py-3 bg-brand text-black display tracking-widest rounded-full hover-glow">DESCARGAR PDF NOTARIADO</button>
+          </div>
         </div>
       </div>
     </section>
@@ -782,7 +785,9 @@ function Admin({ open, close, sorteos, setSorteos, stickersList, setStickersList
   const [auth,setAuth] = useState(false);
   const [pw,setPw] = useState('');
   const [section,setSection] = useState('sorteos');
-  const [editPrizes,setEditPrizes] = useState(null);
+  const [editPanel,setEditPanel] = useState(null); // {idx, type:'prizes'|'hero'|'bases'}
+  const isPanel = (i,t) => editPanel && editPanel.idx===i && editPanel.type===t;
+  const togglePanel = (i,t) => setEditPanel(isPanel(i,t) ? null : {idx:i, type:t});
   const [participants] = useState([
     { id:101, name:'Javier R.', email:'jr@mail.cl', numeros:5, fecha:'2026-04-01' },
     { id:102, name:'María P.',  email:'mp@mail.cl', numeros:8, fecha:'2026-04-02' },
@@ -837,7 +842,7 @@ function Admin({ open, close, sorteos, setSorteos, stickersList, setStickersList
                     <div>
                       <div class="flex items-center justify-between mb-6">
                         <div class="display text-3xl">SORTEOS ACTIVOS</div>
-                        <button onClick=${()=>setSorteos([...sorteos,{id:Date.now(),title:'Nuevo sorteo',prize:'',start:'',end:'',active:false,status:'activo',prizes:[{t:'PREMIO 1',d:'Descripci\u00f3n'}]}])} class="px-5 py-2 bg-brand text-black display tracking-widest text-sm rounded-full hover-glow">+ NUEVO</button>
+                        <button onClick=${()=>setSorteos([...sorteos,{id:Date.now(),title:'Nuevo sorteo',prize:'',start:'',end:'',active:false,status:'activo',heroCards:[{title:'CARD 1',desc:'Descripci\u00f3n',color1:'#ff6a00',color2:'#dc2626'}],prizes:[{t:'PREMIO 1',d:'Descripci\u00f3n'}],bases:[{label:'Organizador',value:'Claudio en Pista'}]}])} class="px-5 py-2 bg-brand text-black display tracking-widest text-sm rounded-full hover-glow">+ NUEVO</button>
                       </div>
                       <div class="space-y-4">
                         ${sorteos.map((s,i)=>html`
@@ -848,13 +853,32 @@ function Admin({ open, close, sorteos, setSorteos, stickersList, setStickersList
                               <input type="date" value=${s.end} onChange=${e=>{const n=[...sorteos];n[i].end=e.target.value;setSorteos(n);}} class="bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand text-xs"/>
                               <label class="flex items-center gap-2 text-xs"><input type="checkbox" checked=${s.active} onChange=${e=>{const n=[...sorteos];n[i].active=e.target.checked;setSorteos(n);}}/> ON</label>
                               <button onClick=${()=>{const n=[...sorteos];n[i].status=s.status==='bloqueado'?'activo':'bloqueado';setSorteos(n);}} class=${"px-2 py-1 rounded-lg text-xs border "+(s.status==='bloqueado'?"border-red-500 text-red-400 bg-red-900/30":"border-green-500 text-green-400 bg-green-900/30")}>${s.status==='bloqueado'?'BLOQUEADO':'ACTIVO'}</button>
-                              <button onClick=${()=>setEditPrizes(editPrizes===i?null:i)} class=${"px-2 py-1 rounded-lg text-xs border "+(editPrizes===i?"border-brand text-brand":"border-white/20 text-neutral-400")}>${editPrizes===i?'CERRAR':'PREMIOS'}</button>
+                              <button onClick=${()=>togglePanel(i,'hero')} class=${"px-2 py-1 rounded-lg text-xs border "+(isPanel(i,'hero')?"border-brand text-brand":"border-white/20 text-neutral-400")}>${isPanel(i,'hero')?'CERRAR':'HERO CARDS'}</button>
+                              <button onClick=${()=>togglePanel(i,'prizes')} class=${"px-2 py-1 rounded-lg text-xs border "+(isPanel(i,'prizes')?"border-brand text-brand":"border-white/20 text-neutral-400")}>${isPanel(i,'prizes')?'CERRAR':'PREMIOS'}</button>
+                              <button onClick=${()=>togglePanel(i,'bases')} class=${"px-2 py-1 rounded-lg text-xs border "+(isPanel(i,'bases')?"border-brand text-brand":"border-white/20 text-neutral-400")}>${isPanel(i,'bases')?'CERRAR':'BASES'}</button>
                               <button onClick=${()=>setSorteos(sorteos.filter(x=>x.id!==s.id))} class="text-red-500 hover:text-red-400 text-lg">\u2715</button>
                             </div>
-                            ${editPrizes===i && html`
+                            ${isPanel(i,'hero') && html`
                               <div class="border-t border-white/10 pt-3">
                                 <div class="flex items-center justify-between mb-3">
-                                  <div class="text-xs tracking-widest text-brand">PREMIOS (visibles al cliente)</div>
+                                  <div class="text-xs tracking-widest text-brand">HERO CARDS (gallery horizontal del home)</div>
+                                  <button onClick=${()=>{const n=[...sorteos];if(!n[i].heroCards)n[i].heroCards=[];n[i].heroCards.push({title:'NUEVA',desc:'',color1:'#ff6a00',color2:'#dc2626'});setSorteos(n);}} class="text-xs text-brand hover:underline">+ Agregar</button>
+                                </div>
+                                ${(s.heroCards||[]).map((h,hi)=>html`
+                                  <div key=${hi} class="flex gap-2 items-center mb-2 flex-wrap">
+                                    <input value=${h.title} onChange=${e=>{const n=[...sorteos];n[i].heroCards[hi].title=e.target.value;setSorteos(n);}} placeholder="T\u00edtulo" class="flex-1 min-w-[120px] bg-black/60 border border-white/10 rounded px-2 py-1 text-sm outline-none focus:border-brand"/>
+                                    <input value=${h.desc} onChange=${e=>{const n=[...sorteos];n[i].heroCards[hi].desc=e.target.value;setSorteos(n);}} placeholder="Descripci\u00f3n" class="flex-1 min-w-[140px] bg-black/60 border border-white/10 rounded px-2 py-1 text-sm outline-none focus:border-brand"/>
+                                    <label class="text-xs text-neutral-500">C1<input type="color" value=${h.color1||'#ff6a00'} onChange=${e=>{const n=[...sorteos];n[i].heroCards[hi].color1=e.target.value;setSorteos(n);}} class="ml-1 w-8 h-7 align-middle"/></label>
+                                    <label class="text-xs text-neutral-500">C2<input type="color" value=${h.color2||'#dc2626'} onChange=${e=>{const n=[...sorteos];n[i].heroCards[hi].color2=e.target.value;setSorteos(n);}} class="ml-1 w-8 h-7 align-middle"/></label>
+                                    <button onClick=${()=>{const n=[...sorteos];n[i].heroCards.splice(hi,1);setSorteos(n);}} class="text-red-500 text-xs">\u2715</button>
+                                  </div>
+                                `)}
+                              </div>
+                            `}
+                            ${isPanel(i,'prizes') && html`
+                              <div class="border-t border-white/10 pt-3">
+                                <div class="flex items-center justify-between mb-3">
+                                  <div class="text-xs tracking-widest text-brand">PREMIOS (Vuelos, Hotel, Tickets...)</div>
                                   <button onClick=${()=>{const n=[...sorteos];if(!n[i].prizes)n[i].prizes=[];n[i].prizes.push({t:'NUEVO',d:''});setSorteos(n);}} class="text-xs text-brand hover:underline">+ Agregar</button>
                                 </div>
                                 ${(s.prizes||[]).map((p,pi)=>html`
@@ -866,12 +890,27 @@ function Admin({ open, close, sorteos, setSorteos, stickersList, setStickersList
                                 `)}
                               </div>
                             `}
+                            ${isPanel(i,'bases') && html`
+                              <div class="border-t border-white/10 pt-3">
+                                <div class="flex items-center justify-between mb-3">
+                                  <div class="text-xs tracking-widest text-brand">BASES (texto legal del sorteo)</div>
+                                  <button onClick=${()=>{const n=[...sorteos];if(!n[i].bases)n[i].bases=[];n[i].bases.push({label:'Nuevo',value:''});setSorteos(n);}} class="text-xs text-brand hover:underline">+ Agregar</button>
+                                </div>
+                                ${(s.bases||[]).map((b,bi)=>html`
+                                  <div key=${bi} class="flex gap-2 items-start mb-2">
+                                    <input value=${b.label} onChange=${e=>{const n=[...sorteos];n[i].bases[bi].label=e.target.value;setSorteos(n);}} placeholder="T\u00edtulo" class="w-1/4 bg-black/60 border border-white/10 rounded px-2 py-1 text-sm outline-none focus:border-brand"/>
+                                    <textarea value=${b.value} onChange=${e=>{const n=[...sorteos];n[i].bases[bi].value=e.target.value;setSorteos(n);}} placeholder="Texto" rows="2" class="flex-1 bg-black/60 border border-white/10 rounded px-2 py-1 text-sm outline-none focus:border-brand resize-none"></textarea>
+                                    <button onClick=${()=>{const n=[...sorteos];n[i].bases.splice(bi,1);setSorteos(n);}} class="text-red-500 text-xs mt-1">\u2715</button>
+                                  </div>
+                                `)}
+                              </div>
+                            `}
                           </div>
                         `)}
                       </div>
                     </div>
                   `}
-                  $                  ${section==='stickers' && html`
+                  ${section==='stickers' && html`
                     <div>
                       <div class="flex items-center justify-between mb-6">
                         <div class="display text-3xl">CATÁLOGO DE STICKERS</div>
@@ -962,12 +1001,44 @@ function App(){
   const [cart,setCart] = useState({});
   const [cartOpen,setCartOpen] = useState(false);
   const [adminOpen,setAdminOpen] = useState(false);
-  const [sorteos,setSorteos] = useState([{id:1,title:'Viaje F1 Brasil 2026',prize:'2 personas a Interlagos',start:'2026-05-01',end:'2026-10-25',active:true,status:'activo',prizes:[{t:'VUELOS',d:'Pasajes ida y vuelta Santiago \u2014 S\u00e3o Paulo para 2 personas'},{t:'HOTEL',d:'4 noches en hotel 4\u2605 con desayuno incluido'},{t:'TICKETS',d:'Entradas oficiales GP Brasil 2026 los 3 d\u00edas'},{t:'TRASLADOS',d:'Aeropuerto, hotel y circuito coordinados'},{t:'PADDOCK',d:'Acceso preferencial zona pit lane'},{t:'SEGURO',d:'Seguro de viaje internacional incluido'}]}]);
+  const [sorteos,setSorteos] = useState([{
+    id:1,
+    title:'Viaje F1 Brasil 2026',
+    prize:'2 personas a Interlagos',
+    start:'2026-05-01',
+    end:'2026-10-25',
+    active:true,
+    status:'activo',
+    heroCards:[
+      {title:'INTERLAGOS', desc:'4.309 KM \u00b7 71 VUELTAS', color1:'#22c55e', color2:'#eab308'},
+      {title:'SAO PAULO',  desc:'BRASIL \u00b7 NOVIEMBRE 2026', color1:'#eab308', color2:'#ff6a00'},
+      {title:'GRAND PRIX', desc:'EXPERIENCIA VIP', color1:'#ff6a00', color2:'#dc2626'}
+    ],
+    prizes:[
+      {t:'VUELOS',d:'Pasajes ida y vuelta Santiago \u2014 S\u00e3o Paulo para 2 personas'},
+      {t:'HOTEL',d:'4 noches en hotel 4\u2605 con desayuno incluido'},
+      {t:'TICKETS',d:'Entradas oficiales GP Brasil 2026 los 3 d\u00edas'},
+      {t:'TRASLADOS',d:'Aeropuerto, hotel y circuito coordinados'},
+      {t:'PADDOCK',d:'Acceso preferencial zona pit lane'},
+      {t:'SEGURO',d:'Seguro de viaje internacional incluido'}
+    ],
+    bases:[
+      {label:'Organizador', value:'Claudio en Pista (@claudioenpista).'},
+      {label:'Vigencia', value:'del 1 de mayo al 25 de octubre de 2026.'},
+      {label:'Participantes', value:'mayores de 18 a\u00f1os residentes en Chile con c\u00e9dula vigente.'},
+      {label:'Mec\u00e1nica', value:'por cada compra de stickers oficiales en el sitio, el participante recibe n\u00fameros correlativos (1 por cada $1.000 CLP gastados).'},
+      {label:'Sorteo', value:'realizado ante Notario P\u00fablico de Santiago el 1 de noviembre de 2026 y transmitido en vivo por Instagram.'},
+      {label:'Premio', value:'viaje para dos personas al GP de Brasil 2026 (vuelos, hotel 4 noches, entradas 3 d\u00edas, traslados y seguro). No canjeable por dinero.'}
+    ]
+  }]);
   const [stickersList,setStickersList] = useState(STICKERS.map(s=>({...s,sorteoId:1})));
   const cartCount = Object.values(cart).reduce((a,b)=>a+b,0);
   const add = id => setCart(c=>({...c,[id]:(c[id]||0)+1}));
   const sub = id => setCart(c=>{ const n={...c}; n[id]=(n[id]||0)-1; if(n[id]<=0)delete n[id]; return n; });
   const goto = t => { ScrollTrigger.getAll().forEach(st=>st.kill()); lenis.stop(); setTab(t); setTimeout(()=>{window.scrollTo({top:0,behavior:'instant'});lenis.start();},50); };
+
+  const activeSorteo = sorteos.find(s=>s.active && s.status!=='bloqueado');
+  const heroCards = activeSorteo && activeSorteo.heroCards;
 
   return html`
     <${React.Fragment}>
@@ -976,14 +1047,12 @@ function App(){
         <${React.Fragment}>
           <${Hero} goto=${goto}/>
           <${Marquee}/>
-          <${HorizontalGallery} goto=${goto}/>
+          <${HorizontalGallery} goto=${goto} heroCards=${heroCards}/>
           <${Sorteo} goto=${goto} sorteos=${sorteos}/>
         </${React.Fragment}>
       `}
       ${tab==='sorteo' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase cursor-pointer">\u2190 VOLVER A INICIO</button></div><${Sorteo} goto=${goto} sorteos=${sorteos}/></div>`}
       ${tab==='stickers' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase cursor-pointer">\u2190 VOLVER A INICIO</button></div><${Stickers} cart=${cart} add=${add} sub=${sub}/></div>`}
-      ${tab==='bases' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase cursor-pointer">\u2190 VOLVER A INICIO</button></div><${Bases}/></div>`}
-      ${tab==='ruleta' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase cursor-pointer">\u2190 VOLVER A INICIO</button></div><${Ruleta}/></div>`}
 
       <footer class="border-t border-white/10 mt-20 py-10 text-center">
         <div class="display text-2xl text-brand">CLAUDIO EN PISTA</div>
