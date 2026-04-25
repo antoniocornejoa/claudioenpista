@@ -1098,25 +1098,21 @@ function Admin({ open, close, sorteos, stickersList,
 
             ${!user ? html`
               <div class="max-w-md mx-auto mt-16 border border-white/10 rounded-3xl p-10 bg-white/5 backdrop-blur neon-border">
-                <div class="display text-3xl mb-2 text-center">${authMode==='signin'?'ACCESO ADMIN':'CREAR CUENTA'}</div>
-                <div class="text-xs text-center text-neutral-500 mb-6 tracking-widest">SUPABASE AUTH · ${authMode==='signin'?'EMAIL + PASSWORD':'REGISTRO INICIAL'}</div>
+                <div class="display text-3xl mb-2 text-center">ACCESO ADMIN</div>
+                <div class="text-xs text-center text-neutral-500 mb-6 tracking-widest">SUPABASE AUTH · EMAIL + PASSWORD</div>
                 <input type="email" value=${email} onChange=${e=>setEmail(e.target.value)}
                   placeholder="email@dominio.cl"
                   class="w-full bg-black/40 border border-white/10 rounded-full px-5 py-3 outline-none focus:border-brand mb-3"/>
                 <input type="password" value=${pw} onChange=${e=>setPw(e.target.value)}
-                  placeholder="contraseña (mín 6 caracteres)"
-                  onKeyDown=${e=>{ if(e.key==='Enter'){ authMode==='signin'?handleSignIn():handleSignUp(); }}}
+                  placeholder="contraseña"
+                  onKeyDown=${e=>{ if(e.key==='Enter') handleSignIn(); }}
                   class="w-full bg-black/40 border border-white/10 rounded-full px-5 py-3 outline-none focus:border-brand"/>
-                ${authMsg && html`<div class="text-xs text-center mt-3 ${authMsg.includes('autorizada')||authMsg.includes('Error')||authMsg.includes('Invalid')?'text-red-400':'text-brand'}">${authMsg}</div>`}
-                <button onClick=${authMode==='signin'?handleSignIn:handleSignUp} disabled=${authBusy}
+                ${authMsg && html`<div class="text-xs text-center mt-3 text-red-400">${authMsg}</div>`}
+                <button onClick=${handleSignIn} disabled=${authBusy}
                   class="w-full mt-4 py-3 bg-brand text-black display tracking-widest rounded-full hover-glow disabled:opacity-40">
-                  ${authBusy?'...':authMode==='signin'?'ENTRAR':'CREAR CUENTA'}
+                  ${authBusy?'...':'ENTRAR'}
                 </button>
-                <div class="text-center text-xs text-neutral-500 mt-4">
-                  ${authMode==='signin'
-                    ? html`¿No tenés cuenta? <button onClick=${()=>{setAuthMode('signup');setAuthMsg('');}} class="text-brand hover:underline">crear cuenta</button>`
-                    : html`¿Ya tenés cuenta? <button onClick=${()=>{setAuthMode('signin');setAuthMsg('');}} class="text-brand hover:underline">entrar</button>`}
-                </div>
+                <div class="text-center text-[10px] text-neutral-600 mt-6 tracking-widest">ACCESO RESTRINGIDO · SOLO ADMINS AUTORIZADOS</div>
               </div>
             ` : html`
               <div class="grid md:grid-cols-12 gap-6">
