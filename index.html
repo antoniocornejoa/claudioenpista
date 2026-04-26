@@ -2065,14 +2065,163 @@ function FAQAdmin({ showToast }){
   `;
 }
 
-/* ============== BOLETAS — Admin UI ============== */
-function BoletasAdmin({ showToast }){
-  const [boletas, setBoletas] = useState([]);
+/* ============== INGRESOS / IVA — Admin UI ============== */
+function IngresosAdmin({ showToast }){
+  const [rows, setRows] = useState([]);
   const [busy, setBusy] = useState(false);
   async function refresh(){
     setBusy(true);
     try {
-      const { data, error } = await sb.from('boletas').select('*, compras!inner(participantes(name, email))').order('created_at', { ascending: false }).limit(100);
+      const { data, error } = await sb.from('v_sorteos_revenue').select('*').order('sorteo_id', { ascending: false });
+      if (error) throw error;
+      setRows(data || []);
+    } catch(e){ showToast('Error: '+e.message, 'err'); }
+    setBusy(false);
+  }
+  useEffect(()=>{ refresh(); }, []);
+  const fmtCLP = (n)=> '$'+(n||0).toLocaleString('es-CL');
+  const totals = rows.reduce((acc,r)=>({
+    total: acc.total + (r.total_recaudado||0),
+    neto: acc.neto + (r.total_neto||0),
+    iva: acc.iva + (r.iva_debito||0),
+    compras: acc.compras + (r.compras_paid||0),
+    numeros: acc.numeros + (r.numeros_vendidos||0),
+    participantes: acc.participantes + (r.participantes_unicos||0),
+  }), {total:0,neto:0,iva:0,compras:0,numeros:0,participantes:0});
+
+  function exportCSV(){
+    const headers = ['Sorteo ID','Sorteo','Estado','Total Recaudado CLP','Neto CLP','IVA Débito 19% CLP','Compras Pagadas','Compras Pendientes','Compras Fallidas','Números Vendidos','Participantes Únicos'];
+    const lines = rows.map(r => [
+      r.sorteo_id, `"${(r.sorteo_title||'').replace(/"/g,'""')}"`, r.lifecycle_status,
+      r.total_recaudado, r.total_neto, r.iva_debito,
+      r.compras_paid, r.compras_pending, r.compras_failed,
+      r.numeros_vendidos, r.participantes_unicos
+    ].join(','));
+    const csv = [headers.join(','), ...lines, '', `"TOTAL",,,${totals.total},${totals.neto},${totals.iva},${totals.compras},,,${totals.numeros},${totals.participantes}`].join('\n');
+    const blob = new Blob(["﻿"+csv], {type:'text/csv;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `ingresos_sorteos_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return html`
+    <div>
+      <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div>
+          <div class="display text-3xl">INGRESOS / IVA</div>
+          <div class="text-[10px] text-neutral-500 tracking-widest">RESUMEN FINANCIERO POR SORTEO · IVA INCLUIDO EN PRECIO (19%)</div>
+        </div>
+        <div class="flex gap-2">
+          <button onClick=${refresh} class="px-3 py-2 border border-white/20 rounded-full text-xs tracking-widest hover:border-brand">↻ RECARGAR</button>
+          <button onClick=${exportCSV} class="px-5 py-2 bg-brand text-black display tracking-widest text-sm rounded-full hover-glow">↓ EXPORT CSV</button>
+        </div>
+      </div>
+
+      <!-- KPI cards -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <div class="bg-gradient-to-br from-brand/20 via-brand/5 to-transparent border border-brand/40 rounded-2xl p-4">
+          <div class="text-[10px] tracking-widest text-brand mb-1">// TOTAL RECAUDADO</div>
+          <div class="display text-2xl text-brand">${fmtCLP(totals.total)}</div>
+          <div class="text-[10px] text-neutral-500 mt-1">CLP · IVA incluido</div>
+        </div>
+        <div class="bg-white/5 border border-white/10 rounded-2xl p-4">
+          <div class="text-[10px] tracking-widest text-neutral-400 mb-1">// NETO (sin IVA)</div>
+          <div class="display text-2xl">${fmtCLP(totals.neto)}</div>
+          <div class="text-[10px] text-neutral-500 mt-1">total / 1,19</div>
+        </div>
+        <div class="bg-yellow-900/10 border border-yellow-700/30 rounded-2xl p-4">
+          <div class="text-[10px] tracking-widest text-yellow-300 mb-1">// IVA DÉBITO</div>
+          <div class="display text-2xl text-yellow-300">${fmtCLP(totals.iva)}</div>
+          <div class="text-[10px] text-neutral-500 mt-1">19% que vas al SII</div>
+        </div>
+        <div class="bg-white/5 border border-white/10 rounded-2xl p-4">
+          <div class="text-[10px] tracking-widest text-neutral-400 mb-1">// COMPRAS PAGADAS</div>
+          <div class="display text-2xl">${totals.compras.toLocaleString('es-CL')}</div>
+          <div class="text-[10px] text-neutral-500 mt-1">${totals.numeros.toLocaleString('es-CL')} números · ${totals.participantes.toLocaleString('es-CL')} participantes</div>
+        </div>
+      </div>
+
+      <!-- Tabla por sorteo -->
+      ${busy ? html`<div class="text-center py-12 text-neutral-500">Cargando...</div>` : rows.length === 0 ? html`
+        <div class="text-center py-20 border border-white/10 rounded-2xl bg-white/5">
+          <div class="text-4xl mb-3">📊</div>
+          <div class="text-neutral-400">Aún no hay ingresos registrados.</div>
+        </div>
+      ` : html`
+        <div class="overflow-x-auto border border-white/10 rounded-2xl">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-neutral-500 text-[10px] tracking-widest border-b border-white/10 bg-black/30">
+                <th class="py-3 px-3">SORTEO</th>
+                <th class="px-3">ESTADO</th>
+                <th class="px-3 text-right">TOTAL RECAUDADO</th>
+                <th class="px-3 text-right">NETO</th>
+                <th class="px-3 text-right text-yellow-300">IVA DÉBITO 19%</th>
+                <th class="px-3 text-center">COMPRAS</th>
+                <th class="px-3 text-center">NÚMEROS</th>
+                <th class="px-3 text-center">PARTICIPANTES</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map(r => html`
+                <tr key=${r.sorteo_id} class="border-b border-white/5 hover:bg-white/5">
+                  <td class="py-3 px-3"><div class="font-semibold">${r.sorteo_title}</div><div class="text-[10px] text-neutral-500 font-mono">#${r.sorteo_id}</div></td>
+                  <td class="px-3">
+                    ${r.lifecycle_status === 'completed' ? html`<span class="bg-green-900/40 text-green-400 px-2 py-0.5 rounded-full text-[10px] tracking-widest">COMPLETADO</span>`
+                    : r.lifecycle_status === 'frozen' ? html`<span class="bg-blue-900/40 text-blue-400 px-2 py-0.5 rounded-full text-[10px] tracking-widest">FROZEN</span>`
+                    : html`<span class="bg-brand/20 text-brand px-2 py-0.5 rounded-full text-[10px] tracking-widest">ABIERTO</span>`}
+                  </td>
+                  <td class="px-3 text-right text-brand font-mono">${fmtCLP(r.total_recaudado)}</td>
+                  <td class="px-3 text-right text-neutral-300 font-mono">${fmtCLP(r.total_neto)}</td>
+                  <td class="px-3 text-right text-yellow-300 font-mono">${fmtCLP(r.iva_debito)}</td>
+                  <td class="px-3 text-center">
+                    <span class="text-green-400 font-mono">${r.compras_paid}</span>
+                    ${r.compras_pending > 0 && html`<span class="text-yellow-400 text-xs ml-1">+${r.compras_pending}p</span>`}
+                    ${r.compras_failed > 0 && html`<span class="text-red-400 text-xs ml-1">+${r.compras_failed}f</span>`}
+                  </td>
+                  <td class="px-3 text-center font-mono">${r.numeros_vendidos.toLocaleString('es-CL')}</td>
+                  <td class="px-3 text-center font-mono">${r.participantes_unicos}</td>
+                </tr>
+              `)}
+              <tr class="border-t-2 border-brand/40 bg-brand/5 font-bold">
+                <td class="py-4 px-3 display tracking-widest">TOTAL</td>
+                <td class="px-3"></td>
+                <td class="px-3 text-right text-brand font-mono">${fmtCLP(totals.total)}</td>
+                <td class="px-3 text-right font-mono">${fmtCLP(totals.neto)}</td>
+                <td class="px-3 text-right text-yellow-300 font-mono">${fmtCLP(totals.iva)}</td>
+                <td class="px-3 text-center font-mono">${totals.compras}</td>
+                <td class="px-3 text-center font-mono">${totals.numeros.toLocaleString('es-CL')}</td>
+                <td class="px-3 text-center font-mono">${totals.participantes}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      `}
+
+      <!-- Notas IVA -->
+      <div class="mt-6 p-5 bg-yellow-900/10 border border-yellow-700/30 rounded-2xl text-xs text-yellow-200/80">
+        <div class="display text-sm mb-2 text-yellow-300">📋 NOTAS SOBRE EL IVA</div>
+        <ul class="list-disc list-inside space-y-1 text-neutral-300">
+          <li>Los precios mostrados al cliente <strong>incluyen IVA del 19%</strong>.</li>
+          <li><strong>IVA Débito</strong> = total recaudado × 19/119 — es el IVA que cobraste y debes declarar al SII.</li>
+          <li>El monto que efectivamente <strong>pagas al SII</strong> es: IVA Débito − IVA Crédito (el IVA pagado en compras de insumos, gastos del giro, etc).</li>
+          <li>El IVA Crédito no aparece acá porque depende de tus boletas/facturas de gastos. Pídele a tu contador el detalle mensual.</li>
+          <li>Solo cuentan compras con status <strong>paid</strong>. Las pendientes y fallidas no generan IVA débito hasta confirmarse.</li>
+        </ul>
+      </div>
+    </div>
+  `;
+}
+
+/* ============== BOLETAS — Admin UI ============== */
+function BoletasAdmin({ showToast, sorteos=[] }){
+  const [boletas, setBoletas] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [sorteoFilter, setSorteoFilter] = useState('');
+  async function refresh(){
+    setBusy(true);
+    try {
+      const { data, error } = await sb.from('boletas').select('*, compras!inner(sorteo_id, sorteos(title), participantes(name, email))').order('created_at', { ascending: false }).limit(100);
       if (error) throw error;
       setBoletas(data || []);
     } catch(e){ showToast('Error: '+e.message, 'err'); }
@@ -2098,7 +2247,11 @@ function BoletasAdmin({ showToast }){
           <div class="display text-3xl">BOLETAS ELECTRÓNICAS</div>
           <div class="text-[10px] text-neutral-500 tracking-widest">${boletas.length} REGISTROS · ${boletas.filter(b=>b.estado==='emitted').length} EMITIDAS · ${boletas.filter(b=>b.estado==='failed').length} FALLIDAS · ${boletas.filter(b=>b.estado==='pending').length} PENDIENTES</div>
         </div>
-        <div class="flex gap-2">
+        <div class="flex gap-2 flex-wrap">
+          <select value=${sorteoFilter} onChange=${e=>setSorteoFilter(e.target.value)} class="bg-black/40 border border-white/10 rounded-full px-4 py-2 text-xs outline-none focus:border-brand" title="Filtrar por sorteo">
+            <option value="">▼ TODOS LOS SORTEOS</option>
+            ${sorteos.map(so=>html`<option key=${so.id} value=${so.id}>${so.title}</option>`)}
+          </select>
           <button onClick=${refresh} class="px-3 py-2 border border-white/20 rounded-full text-xs tracking-widest hover:border-brand">↻ RECARGAR</button>
         </div>
       </div>
@@ -2113,14 +2266,15 @@ function BoletasAdmin({ showToast }){
           <table class="w-full text-sm">
             <thead>
               <tr class="text-left text-neutral-500 text-[10px] tracking-widest border-b border-white/10">
-                <th class="py-3">FECHA</th><th>COMPRA</th><th>CLIENTE</th><th>FOLIO</th><th>MONTO</th><th>ESTADO</th><th>ACCIONES</th>
+                <th class="py-3">FECHA</th><th>COMPRA</th><th>SORTEO</th><th>CLIENTE</th><th>FOLIO</th><th>MONTO</th><th>ESTADO</th><th>ACCIONES</th>
               </tr>
             </thead>
             <tbody>
-              ${boletas.map(b => html`
+              ${boletas.filter(b => !sorteoFilter || String(b.compras?.sorteo_id)===sorteoFilter).map(b => html`
                 <tr key=${b.id} class="border-b border-white/5 hover:bg-white/5">
                   <td class="py-3 text-xs text-neutral-500">${new Date(b.created_at).toLocaleDateString('es-CL')}</td>
                   <td class="font-mono text-xs">#${b.compra_id}</td>
+                  <td class="text-xs text-neutral-400">${(b.compras?.sorteos?.title||'—').substring(0,20)}</td>
                   <td class="text-xs">${b.compras?.participantes?.name || '—'}<br/><span class="text-neutral-500">${b.compras?.participantes?.email || ''}</span></td>
                   <td class="font-mono">${b.folio || '—'}</td>
                   <td class="text-brand font-mono">$${(b.monto_total||0).toLocaleString('es-CL')}</td>
@@ -2451,6 +2605,11 @@ function Admin({ open, close, sorteos, stickersList,
   const [compras,setCompras] = useState([]);
   const [comprasBusy,setComprasBusy] = useState(false);
   const [comprasFilter,setComprasFilter] = useState('all'); // all|paid|pending|failed
+  const [comprasSorteoFilter,setComprasSorteoFilter] = useState(''); // '' = todos, o sorteo id
+  const [stickersSorteoFilter,setStickersSorteoFilter] = useState(''); // filtro panel stickers
+  const [boletasSorteoFilter,setBoletasSorteoFilter] = useState(''); // filtro panel boletas
+  const [revenueRows,setRevenueRows] = useState([]);
+  const [revenueBusy,setRevenueBusy] = useState(false);
 
   // verificar sesion al abrir
   useEffect(()=>{
@@ -2560,6 +2719,7 @@ function Admin({ open, close, sorteos, stickersList,
                 <aside class="md:col-span-3 space-y-2">
                   ${[
                     ['sorteos','🏆 SORTEOS'],
+                    ['ingresos','💰 INGRESOS / IVA'],
                     ['stickers','🎟️ STICKERS'],
                     ['participantes','👥 PARTICIPANTES'],
                     ['bases','📜 BASES PDF'],
@@ -2662,13 +2822,18 @@ function Admin({ open, close, sorteos, stickersList,
                           <div class="display text-3xl">CATÁLOGO DE STICKERS</div>
                           <div class="text-[10px] text-neutral-500 tracking-widest">${dbReady?'✓ SINCRONIZADO CON DB':'⚠ MODO LOCAL'}</div>
                         </div>
-                        <div class="flex gap-2">
+                        <div class="flex gap-2 flex-wrap">
+                          <select value=${stickersSorteoFilter} onChange=${e=>setStickersSorteoFilter(e.target.value)} class="bg-black/40 border border-white/10 rounded-full px-4 py-2 text-xs outline-none focus:border-brand" title="Filtrar por sorteo">
+                            <option value="">▼ TODOS LOS SORTEOS</option>
+                            ${sorteos.map(so=>html`<option key=${so.id} value=${so.id}>${so.title}</option>`)}
+                          </select>
                           <button onClick=${refreshStickers} class="px-3 py-2 border border-white/20 rounded-full text-xs tracking-widest text-neutral-300 hover:border-brand">↻ RECARGAR</button>
                           <button onClick=${addSticker} disabled=${isBusy('sticker-add')} class="px-5 py-2 bg-brand text-black display tracking-widest text-sm rounded-full hover-glow disabled:opacity-50">${isBusy('sticker-add')?'...':'+ AGREGAR'}</button>
                         </div>
                       </div>
+                      ${stickersSorteoFilter && html`<div class="text-[10px] tracking-widest text-brand mb-3">// MOSTRANDO ${stickersList.filter(s=>String(s.sorteoId)===stickersSorteoFilter).length} STICKER(S) DE: ${sorteos.find(x=>String(x.id)===stickersSorteoFilter)?.title || ''}</div>`}
                       <div class="space-y-4">
-                        ${stickersList.map((s,i)=>html`
+                        ${stickersList.map((s,i)=>(!stickersSorteoFilter || String(s.sorteoId)===stickersSorteoFilter) && html`
                           <div key=${s.id} class="border border-white/10 rounded-2xl p-5 bg-black/30">
                             <div class="flex flex-col md:flex-row gap-4">
                               <!-- columna imagen -->
@@ -2719,9 +2884,9 @@ function Admin({ open, close, sorteos, stickersList,
                                     class="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2 outline-none focus:border-brand"/>
                                 </div>
                                 <div class="md:col-span-5">
-                                  <div class="text-[10px] text-neutral-500 tracking-widest mb-1">SORTEO ASOCIADO</div>
-                                  <select value=${s.sorteoId||''} onChange=${e=>patchStickerLocal(i,{sorteoId:+e.target.value||null})} class="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand text-sm">
-                                    <option value="">— sin sorteo —</option>
+                                  <div class="text-[10px] text-neutral-500 tracking-widest mb-1">SORTEO ASOCIADO ${!s.sorteoId && html`<span class="text-red-400 normal-case ml-1 lowercase tracking-normal">(obligatorio)</span>`}</div>
+                                  <select value=${s.sorteoId||''} onChange=${e=>patchStickerLocal(i,{sorteoId:+e.target.value||null})} class=${"w-full bg-black/40 border rounded-lg px-3 py-2 outline-none focus:border-brand text-sm "+(!s.sorteoId?'border-red-500':'border-white/10')}>
+                                    <option value="">— elige sorteo —</option>
                                     ${sorteos.map(so=>html`<option key=${so.id} value=${so.id}>${so.title}</option>`)}
                                   </select>
                                 </div>
@@ -2745,6 +2910,10 @@ function Admin({ open, close, sorteos, stickersList,
                           <div class="text-[10px] text-neutral-500 tracking-widest">${compras.length} REGISTROS · ${compras.filter(c=>c.status==='paid').length} PAGADAS · ${compras.filter(c=>c.status==='pending').length} PENDIENTES · ${compras.filter(c=>c.status==='failed').length} FALLIDAS</div>
                         </div>
                         <div class="flex gap-2 flex-wrap">
+                          <select value=${comprasSorteoFilter} onChange=${e=>setComprasSorteoFilter(e.target.value)} class="bg-black/40 border border-white/10 rounded-full px-4 py-2 text-xs outline-none focus:border-brand" title="Filtrar por sorteo">
+                            <option value="">▼ TODOS LOS SORTEOS</option>
+                            ${sorteos.map(so=>html`<option key=${so.id} value=${so.id}>${so.title}</option>`)}
+                          </select>
                           <select value=${comprasFilter} onChange=${e=>setComprasFilter(e.target.value)} class="bg-black/40 border border-white/10 rounded-full px-4 py-2 text-xs outline-none focus:border-brand">
                             <option value="all">Todas</option>
                             <option value="paid">Pagadas</option>
@@ -2764,7 +2933,7 @@ function Admin({ open, close, sorteos, stickersList,
                               </tr>
                             </thead>
                             <tbody>
-                              ${compras.filter(c=>comprasFilter==='all'||c.status===comprasFilter).map(c=>html`
+                              ${compras.filter(c=>(comprasFilter==='all'||c.status===comprasFilter) && (!comprasSorteoFilter||String(c.sorteo_id)===comprasSorteoFilter)).map(c=>html`
                                 <tr key=${c.compra_id} class="border-b border-white/5 hover:bg-white/5 align-top">
                                   <td class="py-3 font-mono text-neutral-500">#${c.compra_id}</td>
                                   <td class="text-neutral-500 text-xs">${new Date(c.created_at).toLocaleString('es-CL')}</td>
@@ -2808,7 +2977,8 @@ function Admin({ open, close, sorteos, stickersList,
                   `}
                   ${section==='legal' && html`<${LegalAdmin} showToast=${showToast}/>`}
                   ${section==='faq' && html`<${FAQAdmin} showToast=${showToast}/>`}
-                  ${section==='boletas' && html`<${BoletasAdmin} showToast=${showToast}/>`}
+                  ${section==='boletas' && html`<${BoletasAdmin} showToast=${showToast} sorteos=${sorteos}/>`}
+                  ${section==='ingresos' && html`<${IngresosAdmin} showToast=${showToast}/>`}
                   ${section==='ruleta' && html`<${SorteoVRFAdmin} sorteos=${sorteos} refreshSorteos=${refreshSorteos} showToast=${showToast}/>`}
                 </main>
               </div>
@@ -2997,6 +3167,7 @@ function App(){
   }
   async function saveStickerAt(idx){
     const s = stickersList[idx]; if (!s) return;
+    if (!s.sorteoId) { showToast('Tienes que asignar el sticker a un sorteo antes de guardar', 'err'); return; }
     const key = 'sticker:'+(s.id||'new'); setBusy(key, true);
     try {
       const saved = await dbUpsertSticker(s);
@@ -3006,8 +3177,10 @@ function App(){
     setBusy(key, false);
   }
   async function addSticker(){
+    const sorteoActivoId = sorteos.find(x=>x.active && x.lifecycleStatus==='open')?.id || sorteos.find(x=>x.active)?.id || sorteos[0]?.id;
+    if (!sorteoActivoId) { showToast('Crea un sorteo primero', 'err'); return; }
     setBusy('sticker-add', true);
-    const tpl = { name:'NUEVO STICKER', price:1000, emoji:'🆕', desc:'', sorteoId: (sorteos.find(x=>x.active)?.id) || null, position:(stickersList.length+1)*10 };
+    const tpl = { name:'NUEVO STICKER', price:1000, emoji:'🆕', desc:'', sorteoId: sorteoActivoId, position:(stickersList.length+1)*10 };
     try { const saved = await dbUpsertSticker(tpl); setStickersList(prev => [...prev, saved]); showToast('✓ Sticker creado'); }
     catch(e){ showToast('Error al crear sticker: '+e.message, 'err'); }
     setBusy('sticker-add', false);
