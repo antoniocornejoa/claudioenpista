@@ -874,16 +874,18 @@ function Stickers({ cart, toggle, openCart, stickersList, activeSorteo }){
     : all;
   const packsCfg = (activeSorteo && activeSorteo.packsPricing) || DEFAULT_PACKS_PRICING;
 
-  // Si el sorteo activo está cerrado (frozen/completed) o pasó la fecha del seed, mostrar pantalla de cierre
+  // Si el sorteo activo está cerrado (frozen/completed), pasó la fecha del seed, o pasó end_date → mostrar pantalla de cierre
   const lifecycle = activeSorteo?.lifecycleStatus || 'open';
   const seedTargetPassed = activeSorteo?.seedTargetAt && new Date(activeSorteo.seedTargetAt).getTime() <= Date.now();
-  const sorteoCerrado = lifecycle !== 'open' || seedTargetPassed;
+  const endDatePassed = activeSorteo?.end && new Date(activeSorteo.end + 'T23:59:59').getTime() < Date.now();
+  const sorteoCerrado = lifecycle !== 'open' || seedTargetPassed || endDatePassed;
   if (sorteoCerrado) {
     const titulo = lifecycle === 'completed' ? 'SORTEO FINALIZADO'
       : lifecycle === 'frozen' ? 'COMPRAS CERRADAS'
-      : seedTargetPassed ? 'COMPRAS CERRADAS'
+      : (seedTargetPassed || endDatePassed) ? 'COMPRAS CERRADAS'
       : 'SORTEO NO DISPONIBLE';
     const mensaje = lifecycle === 'completed' ? 'Este sorteo ya fue ejecutado. Aguardá el próximo.'
+      : endDatePassed ? `Las compras se cerraron el ${activeSorteo.end ? new Date(activeSorteo.end+'T00:00').toLocaleDateString('es-CL') : ''}. Estamos preparando la ejecución del sorteo.`
       : 'Las compras del sorteo se cerraron. Estamos esperando el momento de la ejecución.';
     return html`
       <section class="px-6 py-32 min-h-[60vh] flex items-center">
@@ -1358,6 +1360,17 @@ function SorteoVRFAdmin({ sorteos, refreshSorteos, showToast }){
 
   const sorteo = sorteos.find(s => s.id === selectedId) || null;
 
+  // Pre-llenar seed_target_at con end_date + 20:00 cuando se elige un sorteo, si tiene end_date.
+  // (8pm hora de Chile del mismo día de cierre — un par de horas después de cerrar las compras)
+  useEffect(()=>{
+    if (sorteo && sorteo.lifecycleStatus === 'open' && sorteo.end && !seedTargetAt) {
+      // datetime-local format: YYYY-MM-DDTHH:MM
+      setSeedTargetAt(`${sorteo.end}T20:00`);
+    }
+  }, [sorteo?.id]);
+
+  const endPassed = sorteo?.end && new Date(sorteo.end + 'T23:59:59-03:00').getTime() < Date.now();
+
   async function handleFreeze(){
     if (!sorteo) return;
     if (!seedTargetAt) return showToast('Definí la fecha/hora del seed', 'err');
@@ -1413,16 +1426,29 @@ function SorteoVRFAdmin({ sorteos, refreshSorteos, showToast }){
 
           ${sorteo.lifecycleStatus === 'open' && html`
             <div>
+              ${sorteo.end && html`
+                <div class="bg-brand/10 border border-brand/40 rounded-xl p-4 mb-5 text-sm">
+                  <div class="text-[10px] tracking-widest text-brand mb-1">// FECHA DE CIERRE DE COMPRAS</div>
+                  <div class="text-white">${new Date(sorteo.end + 'T00:00').toLocaleDateString('es-CL', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}</div>
+                  <div class="text-xs text-neutral-400 mt-1">${endPassed ? '✓ Las compras ya se cerraron automáticamente. Podés freezear ahora.' : 'Las compras se cerrarán automáticamente al final de ese día (23:59 CLT).'}</div>
+                </div>
+              `}
+              ${!sorteo.end && html`
+                <div class="bg-yellow-900/30 border border-yellow-700/40 rounded-xl p-4 mb-5 text-sm">
+                  <div class="text-yellow-400">⚠ Este sorteo no tiene fecha de cierre definida.</div>
+                  <div class="text-xs text-neutral-400 mt-1">Volvé al panel SORTEOS y completá el campo "CIERRE" para que el sistema cierre las compras automáticamente.</div>
+                </div>
+              `}
               <div class="text-sm text-neutral-300 mb-4 leading-relaxed">
-                <strong class="text-brand">Paso 1: Freeze</strong> — esto cierra las compras y genera un hash SHA-256 inmutable de la lista actual de números. Hacelo cuando termina el período de venta.
+                <strong class="text-brand">Paso 1: Freeze</strong> — esto hashea la lista actual de números (que ya no puede cambiar) y deja el sorteo listo para tomar el seed de Bitcoin.
               </div>
               <div class="bg-black/40 border border-white/10 rounded-xl p-5 mb-4 text-xs">
-                <div class="text-neutral-500 mb-2">¿CUÁNDO TOMAR EL SEED DE BITCOIN?</div>
+                <div class="text-neutral-500 mb-2">¿CUÁNDO SE TOMA EL SEED DE BITCOIN?</div>
                 <div class="text-neutral-300 leading-relaxed">
-                  Definí una fecha/hora futura. El sistema usará el hash del primer bloque de Bitcoin minado <strong>después</strong> de ese momento. Cualquiera puede verificar yendo a <a href="https://mempool.space" target="_blank" class="text-brand hover:underline">mempool.space</a>.
+                  Por defecto, las 20:00 CLT del día de cierre del sorteo. El sistema usará el hash del primer bloque de Bitcoin minado <strong>después</strong> de ese momento. Cualquiera puede verificar en <a href="https://mempool.space" target="_blank" class="text-brand hover:underline">mempool.space</a>.
                 </div>
               </div>
-              <label class="text-xs text-neutral-500 tracking-widest block mb-2">FECHA/HORA OBJETIVO DEL SEED (CHILE)</label>
+              <label class="text-xs text-neutral-500 tracking-widest block mb-2">FECHA/HORA OBJETIVO DEL SEED (CHILE) ${sorteo.end && html`<span class="text-brand normal-case ml-2 lowercase tracking-normal">(auto-vinculado al cierre)</span>`}</label>
               <input type="datetime-local" value=${seedTargetAt} onChange=${e=>setSeedTargetAt(e.target.value)}
                 class="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 outline-none focus:border-brand mb-5"/>
               <button onClick=${handleFreeze} disabled=${busy || !seedTargetAt}
@@ -1750,7 +1776,7 @@ function Admin({ open, close, sorteos, stickersList,
                             <div class="flex flex-wrap gap-3 items-center">
                               <input value=${s.title} onChange=${e=>patchSorteoLocal(i,{title:e.target.value})} placeholder="T\u00edtulo" class="flex-1 min-w-[200px] bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand"/>
                               <input value=${s.prize} onChange=${e=>patchSorteoLocal(i,{prize:e.target.value})} placeholder="Descripci\u00f3n" class="flex-1 min-w-[150px] bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand"/>
-                              <input type="date" value=${s.end||''} onChange=${e=>patchSorteoLocal(i,{end:e.target.value})} class="bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand text-xs"/>
+                              <label class="flex items-center gap-2 text-[10px] text-neutral-500 tracking-widest"><span>CIERRE:</span><input type="date" value=${s.end||''} onChange=${e=>patchSorteoLocal(i,{end:e.target.value})} class="bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand text-xs" title="Fecha de cierre de compras"/></label>
                               <label class="flex items-center gap-2 text-xs"><input type="checkbox" checked=${s.active} onChange=${e=>patchSorteoLocal(i,{active:e.target.checked})}/> ON</label>
                               <button onClick=${()=>patchSorteoLocal(i,{status:s.status==='bloqueado'?'activo':'bloqueado'})} class=${"px-2 py-1 rounded-lg text-xs border "+(s.status==='bloqueado'?"border-red-500 text-red-400 bg-red-900/30":"border-green-500 text-green-400 bg-green-900/30")}>${s.status==='bloqueado'?'BLOQUEADO':'ACTIVO'}</button>
                               <button onClick=${()=>togglePanel(i,'hero')} class=${"px-2 py-1 rounded-lg text-xs border "+(isPanel(i,'hero')?"border-brand text-brand":"border-white/20 text-neutral-400")}>${isPanel(i,'hero')?'CERRAR':'HERO CARDS'}</button>
