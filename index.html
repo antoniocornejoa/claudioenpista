@@ -86,6 +86,7 @@
     "react-dom/": "https://esm.sh/react-dom@18.3.1/",
     "framer-motion": "https://esm.sh/framer-motion@11.3.19?deps=react@18.3.1,react-dom@18.3.1",
     "three":     "https://esm.sh/three@0.160.0",
+    "three/addons/loaders/GLTFLoader.js": "https://esm.sh/three@0.160.0/examples/jsm/loaders/GLTFLoader.js",
     "gsap":      "https://esm.sh/gsap@3.12.5",
     "gsap/ScrollTrigger": "https://esm.sh/gsap@3.12.5/ScrollTrigger",
     "lenis":     "https://esm.sh/lenis@1.1.6",
@@ -149,6 +150,11 @@ import ScrollTrigger from 'gsap/ScrollTrigger';
 import Lenis from 'lenis';
 import htm from 'htm';
 import { createClient } from '@supabase/supabase-js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+// Si querés usar un modelo GLB foto-realista, asigná la URL:
+// window.F1_MODEL_URL = 'https://osoblthqksoreeeazeuu.supabase.co/storage/v1/object/public/...';
+// Si está vacío, se usa el modelo procedural detallado.
 
 const html = htm.bind(React.createElement);
 gsap.registerPlugin(ScrollTrigger);
@@ -495,153 +501,354 @@ lenis.on('scroll', ({ scroll, limit }) => { prog.style.width = (scroll/limit*100
   camera.position.set(0,1.4,7);
 
   const car = new THREE.Group();
-  const orange = new THREE.MeshStandardMaterial({ color:0xff6a00, metalness:.85, roughness:.18, emissive:0x220800 });
-  const orangeDark = new THREE.MeshStandardMaterial({ color:0xcc4f00, metalness:.8, roughness:.3 });
-  const carbon = new THREE.MeshStandardMaterial({ color:0x0a0a0a, metalness:.6, roughness:.45 });
-  const matteBlack = new THREE.MeshStandardMaterial({ color:0x050505, metalness:.4, roughness:.8 });
-  const tireMat = new THREE.MeshStandardMaterial({ color:0x0a0a0a, roughness:.95, metalness:.05 });
-  const rimMat = new THREE.MeshStandardMaterial({ color:0x999999, metalness:1, roughness:.3 });
-  const glassMat = new THREE.MeshStandardMaterial({ color:0x1a2a3a, metalness:.9, roughness:.05, transparent:true, opacity:.7 });
-  const redLight = new THREE.MeshStandardMaterial({ color:0xff2200, emissive:0xff2200, emissiveIntensity:1.5 });
+  // Materiales premium con clearcoat (efecto pintura de fórmula 1)
+  const orange = new THREE.MeshPhysicalMaterial({ color:0xff6a00, metalness:.7, roughness:.25, clearcoat:1, clearcoatRoughness:.15, emissive:0x220800, emissiveIntensity:.3 });
+  const orangeDark = new THREE.MeshPhysicalMaterial({ color:0xcc4f00, metalness:.7, roughness:.35, clearcoat:.8, clearcoatRoughness:.2 });
+  const carbon = new THREE.MeshPhysicalMaterial({ color:0x0a0a0a, metalness:.4, roughness:.6, clearcoat:.4, clearcoatRoughness:.4 });
+  const matteBlack = new THREE.MeshStandardMaterial({ color:0x050505, metalness:.3, roughness:.85 });
+  const tireMat = new THREE.MeshStandardMaterial({ color:0x0a0a0a, roughness:.95, metalness:.02 });
+  const tireSideMat = new THREE.MeshStandardMaterial({ color:0x111111, roughness:.85, metalness:.1 });
+  const rimMat = new THREE.MeshPhysicalMaterial({ color:0xb8b8b8, metalness:1, roughness:.18, clearcoat:.7 });
+  const rimDark = new THREE.MeshPhysicalMaterial({ color:0x444444, metalness:.95, roughness:.3 });
+  const glassMat = new THREE.MeshPhysicalMaterial({ color:0x1a2a3a, metalness:.5, roughness:.05, transparent:true, opacity:.55, clearcoat:1, clearcoatRoughness:0, transmission:.3 });
+  const redLight = new THREE.MeshStandardMaterial({ color:0xff2200, emissive:0xff2200, emissiveIntensity:2 });
+  const chrome = new THREE.MeshPhysicalMaterial({ color:0xeeeeee, metalness:1, roughness:.05, clearcoat:1 });
 
-  // ===== MONOCOQUE / CHASSIS principal (forma de gota) =====
-  // sección central larga y baja
-  const monoGeo = new THREE.BoxGeometry(2.6,.45,1.05);
-  monoGeo.translate(0,0,0);
+  const wheels = [];
+  let proceduralBuilt = false;
+
+  function buildProceduralCar(){
+    if (proceduralBuilt) return;
+    proceduralBuilt = true;
+
+  // ============== MONOCOQUE — forma curva (perfil tipo gota) ==============
+  // Usamos una Shape extruida para que tenga curvas reales en lugar de cubos.
+  const monoShape = new THREE.Shape();
+  monoShape.moveTo(0, -.5);
+  monoShape.bezierCurveTo(.4, -.5, .6, -.45, .65, -.35);
+  monoShape.lineTo(.65, .05);
+  monoShape.bezierCurveTo(.62, .12, .55, .14, .45, .14);
+  monoShape.lineTo(-.45, .14);
+  monoShape.bezierCurveTo(-.55, .14, -.62, .12, -.65, .05);
+  monoShape.lineTo(-.65, -.35);
+  monoShape.bezierCurveTo(-.6, -.45, -.4, -.5, 0, -.5);
+  const monoGeo = new THREE.ExtrudeGeometry(monoShape, { depth: 2.4, bevelEnabled: true, bevelThickness: .04, bevelSize: .04, bevelSegments: 3 });
+  monoGeo.rotateY(Math.PI/2);
+  monoGeo.translate(1.0, .55, 0);
   const mono = new THREE.Mesh(monoGeo, orange);
-  mono.position.set(-.2,.5,0);
   car.add(mono);
 
-  // bordes laterales (sidepods)
-  [.62,-.62].forEach(z => {
-    const sp = new THREE.Mesh(new THREE.BoxGeometry(2.0,.38,.35), orange);
-    sp.position.set(-.4,.45,z); car.add(sp);
-    const spTop = new THREE.Mesh(new THREE.BoxGeometry(1.6,.08,.35), orangeDark);
-    spTop.position.set(-.5,.66,z); car.add(spTop);
-    // intake sidepod
-    const intake = new THREE.Mesh(new THREE.BoxGeometry(.18,.28,.3), carbon);
-    intake.position.set(.55,.5,z); car.add(intake);
+  // ============== SIDEPODS — esculpidos con intakes ==============
+  function makeSidepod(zSign){
+    const shape = new THREE.Shape();
+    shape.moveTo(0, 0);
+    shape.bezierCurveTo(.3, .15, .8, .2, 1.4, .15);
+    shape.lineTo(1.7, .05);
+    shape.lineTo(1.7, -.3);
+    shape.bezierCurveTo(1.0, -.32, .3, -.28, 0, -.2);
+    shape.lineTo(0, 0);
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: .32, bevelEnabled: true, bevelThickness: .03, bevelSize: .03, bevelSegments: 2 });
+    geo.translate(0, 0, -.16);
+    const mesh = new THREE.Mesh(geo, orange);
+    mesh.position.set(-.6, .55, zSign * .65);
+    car.add(mesh);
+    // Intake oval frontal (negro)
+    const intakeShape = new THREE.Shape();
+    for (let i = 0; i < 32; i++) { const a = (i/32) * Math.PI * 2; intakeShape.absellipse ? null : null; const x = Math.cos(a) * .08, y = Math.sin(a) * .12; if (i===0) intakeShape.moveTo(x,y); else intakeShape.lineTo(x,y); }
+    const intakeGeo = new THREE.ExtrudeGeometry(intakeShape, { depth: .08, bevelEnabled: false });
+    intakeGeo.rotateY(Math.PI/2);
+    const intake = new THREE.Mesh(intakeGeo, carbon);
+    intake.position.set(.95, .55, zSign * .55);
+    car.add(intake);
+  }
+  makeSidepod(1); makeSidepod(-1);
+
+  // ============== NOSE — perfil aerodinámico curvo ==============
+  const noseShape = new THREE.Shape();
+  noseShape.moveTo(0, 0);
+  noseShape.bezierCurveTo(.05, -.04, .08, -.08, .08, -.12);
+  noseShape.lineTo(.08, .12);
+  noseShape.bezierCurveTo(.05, .16, 0, .18, -.05, .18);
+  noseShape.lineTo(-.05, -.18);
+  noseShape.bezierCurveTo(-.08, -.18, 0, -.05, 0, 0);
+  // Nose como tubo curvo (cilindro estrecho hacia adelante)
+  for (let i = 0; i < 6; i++){
+    const t = i / 5;
+    const radius = .25 - t * .2;
+    const seg = new THREE.Mesh(new THREE.SphereGeometry(radius, 16, 8), orange);
+    seg.position.set(2.0 + t * 1.0, .42 - t * .04, 0);
+    seg.scale.set(.6, 1, 1.1);
+    car.add(seg);
+  }
+
+  // ============== ALERÓN DELANTERO — multi-elemento ==============
+  // Plano principal
+  const fwMainShape = new THREE.Shape();
+  fwMainShape.moveTo(-1, 0); fwMainShape.lineTo(1, 0);
+  fwMainShape.lineTo(1, .015); fwMainShape.bezierCurveTo(.5, .05, -.5, .05, -1, .015);
+  fwMainShape.lineTo(-1, 0);
+  const fwMainGeo = new THREE.ExtrudeGeometry(fwMainShape, { depth: .12, bevelEnabled: false });
+  fwMainGeo.rotateY(Math.PI/2);
+  const fwMain = new THREE.Mesh(fwMainGeo, orange);
+  fwMain.position.set(2.9, .26, 0);
+  fwMain.scale.set(1, 1, 1.9);
+  car.add(fwMain);
+  // Plano superior 2do elemento
+  const fwUpper = new THREE.Mesh(new THREE.BoxGeometry(.18, .025, 1.7), orangeDark);
+  fwUpper.position.set(2.85, .35, 0); car.add(fwUpper);
+  // Plano inferior (splitter)
+  const fwLower = new THREE.Mesh(new THREE.BoxGeometry(.32, .02, 1.7), carbon);
+  fwLower.position.set(2.78, .19, 0); car.add(fwLower);
+  // Endplates frontales curvados
+  [.95, -.95].forEach(z => {
+    const epShape = new THREE.Shape();
+    epShape.moveTo(0, 0); epShape.bezierCurveTo(.1, .15, .35, .25, .45, .35);
+    epShape.lineTo(.45, -.05); epShape.bezierCurveTo(.3, -.05, .1, -.02, 0, 0);
+    const epGeo = new THREE.ExtrudeGeometry(epShape, { depth: .04, bevelEnabled: true, bevelSize: .01, bevelSegments: 2 });
+    const ep = new THREE.Mesh(epGeo, carbon);
+    ep.position.set(2.65, .15, z - .02);
+    car.add(ep);
+    // Acento naranja en endplate
+    const epAccent = new THREE.Mesh(new THREE.BoxGeometry(.42, .04, .045), orange);
+    epAccent.position.set(2.85, .32, z); car.add(epAccent);
+  });
+  // Vanes/aletines bajo el alerón
+  for (let i = 0; i < 5; i++){
+    const x = 2.7 + i * .04;
+    const offset = (i - 2) * .15;
+    const vane = new THREE.Mesh(new THREE.BoxGeometry(.08, .14, .03), carbon);
+    vane.position.set(x, .26, offset); vane.rotation.y = .15;
+    car.add(vane);
+  }
+
+  // ============== COCKPIT con HALO realista ==============
+  // Bañera del cockpit (forma de "U" abierta arriba)
+  const cockShape = new THREE.Shape();
+  cockShape.moveTo(-.32, 0); cockShape.lineTo(-.32, .35);
+  cockShape.bezierCurveTo(-.32, .42, -.28, .45, -.22, .45);
+  cockShape.lineTo(.22, .45);
+  cockShape.bezierCurveTo(.28, .45, .32, .42, .32, .35);
+  cockShape.lineTo(.32, 0);
+  const cockOpening = new THREE.Path();
+  cockOpening.moveTo(-.18, .12); cockOpening.lineTo(-.18, .35);
+  cockOpening.bezierCurveTo(-.18, .4, -.15, .42, -.1, .42);
+  cockOpening.lineTo(.1, .42);
+  cockOpening.bezierCurveTo(.15, .42, .18, .4, .18, .35);
+  cockOpening.lineTo(.18, .12); cockOpening.lineTo(-.18, .12);
+  cockShape.holes.push(cockOpening);
+  const cockGeo = new THREE.ExtrudeGeometry(cockShape, { depth: .8, bevelEnabled: true, bevelThickness: .02, bevelSize: .02, bevelSegments: 2 });
+  cockGeo.rotateY(Math.PI/2); cockGeo.translate(.4, .6, 0);
+  const cockBase = new THREE.Mesh(cockGeo, carbon);
+  car.add(cockBase);
+  // Asiento
+  const seat = new THREE.Mesh(new THREE.SphereGeometry(.18, 16, 12), matteBlack);
+  seat.position.set(.05, .82, 0); seat.scale.set(1.1, .8, 1.2);
+  car.add(seat);
+  // Visor del piloto (espacio para que no se vea hueco)
+  const visor = new THREE.Mesh(new THREE.SphereGeometry(.15, 16, 8, 0, Math.PI*2, 0, Math.PI/2), glassMat);
+  visor.position.set(-.05, .9, 0); visor.scale.set(.9, 1, .8);
+  car.add(visor);
+
+  // HALO — estructura de seguridad curvada
+  const haloPoints = [];
+  for (let i = 0; i <= 32; i++){
+    const t = i/32; const a = -Math.PI*.45 + t * Math.PI*.9;
+    haloPoints.push(new THREE.Vector3(Math.cos(a)*.42, Math.sin(a)*.45, 0));
+  }
+  const haloPath = new THREE.CatmullRomCurve3(haloPoints);
+  const haloGeo = new THREE.TubeGeometry(haloPath, 32, .025, 8, false);
+  haloGeo.translate(.3, .82, 0);
+  const halo = new THREE.Mesh(haloGeo, carbon);
+  car.add(halo);
+  // Halo tirante central
+  const haloBar = new THREE.Mesh(new THREE.CylinderGeometry(.025, .025, .9, 12), carbon);
+  haloBar.rotation.z = Math.PI/2; haloBar.position.set(.15, 1.18, 0);
+  car.add(haloBar);
+
+  // ============== AIRBOX sobre la cabeza del piloto ==============
+  // Forma triangular esculpida
+  const airShape = new THREE.Shape();
+  airShape.moveTo(-.2, 0); airShape.lineTo(.4, 0); airShape.lineTo(.4, .25);
+  airShape.bezierCurveTo(.4, .4, .1, .42, -.2, .35); airShape.lineTo(-.2, 0);
+  const airGeo = new THREE.ExtrudeGeometry(airShape, { depth: .4, bevelEnabled: true, bevelThickness: .02, bevelSize: .02, bevelSegments: 2 });
+  airGeo.rotateY(Math.PI/2); airGeo.translate(-.7, .9, 0);
+  const airbox = new THREE.Mesh(airGeo, orange);
+  car.add(airbox);
+  // Toma de aire circular (negro)
+  const airIntake = new THREE.Mesh(new THREE.TorusGeometry(.13, .025, 8, 24), carbon);
+  airIntake.position.set(-.25, 1.1, 0); airIntake.rotation.y = Math.PI/2;
+  car.add(airIntake);
+  // Negro interno del intake
+  const airIntakeFill = new THREE.Mesh(new THREE.CircleGeometry(.13, 24), matteBlack);
+  airIntakeFill.position.set(-.23, 1.1, 0); airIntakeFill.rotation.y = -Math.PI/2;
+  car.add(airIntakeFill);
+
+  // ============== ENGINE COVER — carrocería que se estrecha hacia atrás ==============
+  // Sección que va de la cabina al alerón trasero, estrechándose
+  for (let i = 0; i < 8; i++){
+    const t = i / 7;
+    const x = -.65 - t * 1.2;
+    const w = .55 - t * .25;
+    const h = .35 - t * .15;
+    const seg = new THREE.Mesh(new THREE.BoxGeometry(.18, h, w), i < 4 ? orange : orangeDark);
+    seg.position.set(x, .76 - t * .08, 0);
+    car.add(seg);
+  }
+
+  // ============== ALERÓN TRASERO ==============
+  // Soportes (pylons)
+  [.35, -.35].forEach(z => {
+    const sup = new THREE.Mesh(new THREE.BoxGeometry(.06, .65, .04), carbon);
+    sup.position.set(-2.0, 1.0, z); car.add(sup);
+  });
+  // Plano principal
+  const rwMain = new THREE.Mesh(new THREE.BoxGeometry(.22, .07, 1.55), orange);
+  rwMain.position.set(-2.0, 1.34, 0); car.add(rwMain);
+  // Endplates traseros con detalle
+  [.78, -.78].forEach(z => {
+    const ep = new THREE.Mesh(new THREE.BoxGeometry(.42, .58, .03), carbon);
+    ep.position.set(-2.0, 1.18, z); car.add(ep);
+    // Acento naranja
+    const epLine = new THREE.Mesh(new THREE.BoxGeometry(.42, .03, .035), orange);
+    epLine.position.set(-2.0, 1.42, z); car.add(epLine);
+  });
+  // DRS (segundo plano superior)
+  const drs = new THREE.Mesh(new THREE.BoxGeometry(.16, .05, 1.5), orangeDark);
+  drs.position.set(-2.05, 1.45, 0); drs.rotation.z = -.1;
+  car.add(drs);
+  // Beam wing (alerón inferior)
+  const beamWing = new THREE.Mesh(new THREE.BoxGeometry(.18, .05, 1.0), carbon);
+  beamWing.position.set(-2.05, .55, 0); car.add(beamWing);
+  // Luz de lluvia trasera (reglamentaria F1)
+  const rainLight = new THREE.Mesh(new THREE.SphereGeometry(.06, 16, 12), redLight);
+  rainLight.position.set(-2.1, 1.18, 0); rainLight.scale.set(.8, .8, 1.2);
+  car.add(rainLight);
+
+  // ============== ESCAPE central ==============
+  const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(.075, .085, .25, 16), chrome);
+  exhaust.rotation.z = Math.PI/2; exhaust.position.set(-2.15, .85, 0);
+  car.add(exhaust);
+  // Negro interior
+  const exhaustInner = new THREE.Mesh(new THREE.CylinderGeometry(.06, .06, .26, 16), matteBlack);
+  exhaustInner.rotation.z = Math.PI/2; exhaustInner.position.set(-2.16, .85, 0);
+  car.add(exhaustInner);
+
+  // ============== DIFUSOR con vanes verticales ==============
+  const diff = new THREE.Mesh(new THREE.BoxGeometry(.5, .15, 1.1), carbon);
+  diff.position.set(-1.95, .25, 0); car.add(diff);
+  // Vanes verticales del difusor
+  for (let i = 0; i < 5; i++){
+    const z = (i - 2) * .22;
+    const vane = new THREE.Mesh(new THREE.BoxGeometry(.4, .18, .025), carbon);
+    vane.position.set(-1.95, .28, z); car.add(vane);
+  }
+
+  // ============== BARGEBOARDS / sidepods aero ==============
+  [.7, -.7].forEach(z => {
+    const bbShape = new THREE.Shape();
+    bbShape.moveTo(0, 0); bbShape.bezierCurveTo(.15, .1, .35, .15, .5, .12);
+    bbShape.lineTo(.5, .25); bbShape.bezierCurveTo(.3, .28, .1, .25, 0, .2); bbShape.lineTo(0, 0);
+    const bbGeo = new THREE.ExtrudeGeometry(bbShape, { depth: .03, bevelEnabled: false });
+    const bb = new THREE.Mesh(bbGeo, carbon);
+    bb.position.set(1.1, .35, z);
+    car.add(bb);
   });
 
-  // ===== NOSE (cono largo hacia adelante) =====
-  const noseGeo = new THREE.CylinderGeometry(.05,.28,1.6,12);
-  const nose = new THREE.Mesh(noseGeo, orange);
-  nose.rotation.z = Math.PI/2;
-  nose.position.set(2.1,.42,0);
-  car.add(nose);
-
-  // ===== FRONT WING (multi-elemento) =====
-  const fwMain = new THREE.Mesh(new THREE.BoxGeometry(.08,.04,2.0), orange);
-  fwMain.position.set(2.95,.28,0); car.add(fwMain);
-  const fwUpper = new THREE.Mesh(new THREE.BoxGeometry(.25,.03,1.9), orangeDark);
-  fwUpper.position.set(2.85,.37,0); car.add(fwUpper);
-  const fwLower = new THREE.Mesh(new THREE.BoxGeometry(.3,.025,1.85), carbon);
-  fwLower.position.set(2.75,.22,0); car.add(fwLower);
-  // endplates frontales
-  [.95,-.95].forEach(z => {
-    const ep = new THREE.Mesh(new THREE.BoxGeometry(.45,.32,.04), carbon);
-    ep.position.set(2.85,.32,z); car.add(ep);
-  });
-
-  // ===== COCKPIT con HALO =====
-  const cockBase = new THREE.Mesh(new THREE.BoxGeometry(.85,.42,.6), carbon);
-  cockBase.position.set(0,.78,0); car.add(cockBase);
-  // cockpit interior (asiento)
-  const seat = new THREE.Mesh(new THREE.BoxGeometry(.6,.25,.45), matteBlack);
-  seat.position.set(.05,.85,0); car.add(seat);
-  // halo (estructura de seguridad - aro sobre el cockpit)
-  const haloFront = new THREE.Mesh(new THREE.TorusGeometry(.32,.035,8,16,Math.PI), carbon);
-  haloFront.position.set(.4,1.0,0);
-  haloFront.rotation.x = Math.PI/2;
-  haloFront.rotation.z = Math.PI;
-  car.add(haloFront);
-  const haloBar1 = new THREE.Mesh(new THREE.CylinderGeometry(.03,.03,.7,8), carbon);
-  haloBar1.rotation.z = Math.PI/2; haloBar1.position.set(.05,1.18,0); car.add(haloBar1);
-
-  // ===== AIRBOX (toma de aire sobre el piloto) =====
-  const airbox = new THREE.Mesh(new THREE.BoxGeometry(.55,.45,.45), orange);
-  airbox.position.set(-.5,1.05,0); car.add(airbox);
-  const airboxTop = new THREE.Mesh(new THREE.BoxGeometry(.4,.08,.35), carbon);
-  airboxTop.position.set(-.5,1.32,0); car.add(airboxTop);
-  // intake circular
-  const intakeRing = new THREE.Mesh(new THREE.TorusGeometry(.14,.04,8,16), carbon);
-  intakeRing.position.set(-.2,1.1,0);
-  intakeRing.rotation.y = Math.PI/2;
-  car.add(intakeRing);
-
-  // ===== ENGINE COVER (carenado motor que se estrecha hacia atras) =====
-  const engCover = new THREE.Mesh(new THREE.BoxGeometry(1.4,.55,.85), orange);
-  engCover.position.set(-1.05,.78,0); car.add(engCover);
-  const engNarrow = new THREE.Mesh(new THREE.BoxGeometry(.5,.35,.4), orangeDark);
-  engNarrow.position.set(-1.7,.68,0); car.add(engNarrow);
-
-  // ===== REAR WING =====
-  // soportes
-  [.3,-.3].forEach(z => {
-    const sup = new THREE.Mesh(new THREE.BoxGeometry(.05,.7,.06), carbon);
-    sup.position.set(-1.95,1.05,z); car.add(sup);
-  });
-  // ala principal
-  const rwMain = new THREE.Mesh(new THREE.BoxGeometry(.18,.06,1.4), orange);
-  rwMain.position.set(-1.95,1.32,0); car.add(rwMain);
-  // segundo ala (DRS)
-  const rwTop = new THREE.Mesh(new THREE.BoxGeometry(.12,.04,1.35), orangeDark);
-  rwTop.position.set(-2.0,1.42,0); car.add(rwTop);
-  // endplates traseros
-  [.7,-.7].forEach(z => {
-    const ep = new THREE.Mesh(new THREE.BoxGeometry(.35,.45,.04), carbon);
-    ep.position.set(-2.0,1.25,z); car.add(ep);
-  });
-  // luz de lluvia trasera
-  const rainLight = new THREE.Mesh(new THREE.BoxGeometry(.08,.08,.12), redLight);
-  rainLight.position.set(-2.05,1.15,0); car.add(rainLight);
-
-  // ===== ESCAPE =====
-  const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(.07,.09,.2,12), carbon);
-  exhaust.rotation.z = Math.PI/2; exhaust.position.set(-2.1,.85,0); car.add(exhaust);
-
-  // ===== DIFUSOR =====
-  const diff = new THREE.Mesh(new THREE.BoxGeometry(.4,.18,1.0), carbon);
-  diff.position.set(-1.95,.3,0); car.add(diff);
-
-  // ===== RUEDAS (con neumático + llanta + brake duct) =====
+  // ============== RUEDAS DETALLADAS (neumático + rim con radios + brake disk) ==============
   function makeWheel(){
     const g = new THREE.Group();
-    // neumático
-    const tire = new THREE.Mesh(new THREE.CylinderGeometry(.5,.5,.42,32), tireMat);
+    // Tread (banda de rodadura) — cilindro principal
+    const tire = new THREE.Mesh(new THREE.CylinderGeometry(.5, .5, .42, 32), tireMat);
     tire.rotation.x = Math.PI/2;
     g.add(tire);
-    // llanta
-    const rim = new THREE.Mesh(new THREE.CylinderGeometry(.32,.32,.43,24), rimMat);
-    rim.rotation.x = Math.PI/2;
-    g.add(rim);
-    // centro
-    const hub = new THREE.Mesh(new THREE.CylinderGeometry(.08,.08,.46,12), orange);
-    hub.rotation.x = Math.PI/2;
-    g.add(hub);
-    // radios
-    for (let i=0;i<5;i++){
-      const spoke = new THREE.Mesh(new THREE.BoxGeometry(.55,.04,.06), carbon);
-      spoke.rotation.x = (i/5)*Math.PI*2;
+    // Hombros del neumático (suaves curvas usando torus)
+    [.205, -.205].forEach(zOff => {
+      const shoulder = new THREE.Mesh(new THREE.TorusGeometry(.46, .045, 8, 32), tireSideMat);
+      shoulder.position.z = zOff;
+      g.add(shoulder);
+    });
+    // Llanta (rim) plato externo
+    const rim = new THREE.Mesh(new THREE.CylinderGeometry(.34, .34, .43, 24), rimMat);
+    rim.rotation.x = Math.PI/2; g.add(rim);
+    // Centro hub en color brand
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(.1, .1, .44, 16), orange);
+    hub.rotation.x = Math.PI/2; g.add(hub);
+    // Tapa central (tuerca grande tipo F1)
+    const nut = new THREE.Mesh(new THREE.CylinderGeometry(.05, .05, .48, 6), chrome);
+    nut.rotation.x = Math.PI/2; g.add(nut);
+    // Radios (5 brazos) — más finos y realistas
+    for (let i = 0; i < 5; i++){
+      const spoke = new THREE.Mesh(new THREE.BoxGeometry(.6, .03, .04), rimDark);
+      spoke.rotation.x = (i/5) * Math.PI*2;
       g.add(spoke);
     }
+    // Brake disk (disco de freno visible a través del rim)
+    [.18, -.18].forEach(zOff => {
+      const disk = new THREE.Mesh(new THREE.CylinderGeometry(.28, .28, .03, 24), chrome);
+      disk.rotation.x = Math.PI/2; disk.position.z = zOff;
+      g.add(disk);
+    });
     return g;
   }
-  const wheels = [];
   [[1.55,.5,.95],[1.55,.5,-.95],[-1.45,.5,.95],[-1.45,.5,-.95]].forEach(([x,y,z])=>{
     const w = makeWheel();
-    w.position.set(x,y,z);
+    w.position.set(x, y, z);
     car.add(w);
     wheels.push(w);
   });
 
-  // ===== SUSPENSIÓN (brazos visibles) =====
-  [[1.55,.95],[1.55,-.95],[-1.45,.95],[-1.45,-.95]].forEach(([x,z]) => {
-    const arm = new THREE.Mesh(new THREE.CylinderGeometry(.025,.025,.55,6), carbon);
-    arm.rotation.x = Math.PI/2;
-    arm.position.set(x,.5,z*.55);
-    car.add(arm);
+  // ============== SUSPENSIÓN — push-rods visibles ==============
+  [[1.55,.95,1],[1.55,-.95,-1],[-1.45,.95,1],[-1.45,-.95,-1]].forEach(([x,zEnd,zSign]) => {
+    // Brazo superior (upper wishbone)
+    const armUpper = new THREE.Mesh(new THREE.CylinderGeometry(.025, .025, .6, 8), carbon);
+    armUpper.rotation.x = Math.PI/2; armUpper.rotation.y = .15;
+    armUpper.position.set(x, .65, zSign * .55);
+    car.add(armUpper);
+    // Brazo inferior
+    const armLower = new THREE.Mesh(new THREE.CylinderGeometry(.022, .022, .6, 8), carbon);
+    armLower.rotation.x = Math.PI/2; armLower.rotation.y = -.1;
+    armLower.position.set(x, .42, zSign * .55);
+    car.add(armLower);
+    // Push-rod diagonal (la barra inclinada característica)
+    const push = new THREE.Mesh(new THREE.CylinderGeometry(.018, .018, .55, 8), chrome);
+    push.position.set(x, .55, zSign * .55); push.rotation.z = .4 * (zSign);
+    car.add(push);
   });
+
+  // ============== Anti-roll bar visible (barra estabilizadora) ==============
+  const arb = new THREE.Mesh(new THREE.CylinderGeometry(.02, .02, 1.5, 8), chrome);
+  arb.rotation.x = Math.PI/2; arb.position.set(1.6, .58, 0);
+  car.add(arb);
+
+  } // end buildProceduralCar
+
+  // ============== Soporte para modelo GLB foto-realista (opcional) ==============
+  if (window.F1_MODEL_URL) {
+    const loader = new GLTFLoader();
+    loader.load(window.F1_MODEL_URL, (gltf) => {
+      const glbCar = gltf.scene;
+      // Auto-escalar y centrar
+      const box = new THREE.Box3().setFromObject(glbCar);
+      const size = box.getSize(new THREE.Vector3());
+      const target = 4; // dimensión objetivo aproximada
+      const scale = target / Math.max(size.x, size.y, size.z);
+      glbCar.scale.setScalar(scale);
+      const center = box.getCenter(new THREE.Vector3()).multiplyScalar(scale);
+      glbCar.position.sub(center);
+      glbCar.position.y += .2;
+      car.add(glbCar);
+      // Buscar ruedas si tienen nombre estándar
+      glbCar.traverse(obj => {
+        const n = (obj.name || '').toLowerCase();
+        if (n.includes('wheel') || n.includes('rueda') || n.includes('tire')) wheels.push(obj);
+      });
+    }, undefined, (err) => {
+      console.warn('GLB load failed, fallback al modelo procedural', err);
+      buildProceduralCar();
+    });
+  } else {
+    buildProceduralCar();
+  }
 
   // ===== PISO REFLECTANTE para que no flote =====
   const floor = new THREE.Mesh(
@@ -667,11 +874,22 @@ lenis.on('scroll', ({ scroll, limit }) => { prog.style.width = (scroll/limit*100
   // exponer wheels al loop para girarlas
   car.userData.wheels = wheels;
 
-  // lights
-  scene.add(new THREE.AmbientLight(0xffffff,.35));
-  const key = new THREE.DirectionalLight(0xff8a3d,2.2); key.position.set(4,5,5); scene.add(key);
-  const rim = new THREE.DirectionalLight(0x66aaff,1.2); rim.position.set(-5,3,-2); scene.add(rim);
-  const pt = new THREE.PointLight(0xff6a00,3,12); pt.position.set(0,2,3); scene.add(pt);
+  // ============== Iluminación cinematográfica ==============
+  // Ambient suave
+  scene.add(new THREE.AmbientLight(0xffffff, .25));
+  // Hemisphere para gradient sky/floor — da reflejos naturales en la chapa
+  const hemi = new THREE.HemisphereLight(0xff8a3d, 0x1a0a00, .8); scene.add(hemi);
+  // Key light cálida (luz principal naranja)
+  const key = new THREE.DirectionalLight(0xff8a3d, 2.0); key.position.set(5, 6, 4); scene.add(key);
+  // Rim light fría (contraluz azul para separar del fondo)
+  const rim = new THREE.DirectionalLight(0x6699ff, 1.4); rim.position.set(-5, 3, -3); scene.add(rim);
+  // Fill suave debajo
+  const fill = new THREE.DirectionalLight(0xffffff, .4); fill.position.set(0, -3, 2); scene.add(fill);
+  // Spot superior cenital tipo box pit
+  const spot = new THREE.SpotLight(0xffffff, 1.5, 15, Math.PI/4, .5); spot.position.set(0, 8, 3); spot.target.position.set(0, 0, 0); scene.add(spot); scene.add(spot.target);
+  // Acento naranja para reflejos saturados en la pintura
+  const accent = new THREE.PointLight(0xff6a00, 4, 10); accent.position.set(2, 1, 4); scene.add(accent);
+  const accent2 = new THREE.PointLight(0xff4400, 2, 8); accent2.position.set(-3, 1, -3); scene.add(accent2);
 
   // particles
   const pgeo = new THREE.BufferGeometry();
