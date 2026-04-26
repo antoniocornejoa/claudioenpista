@@ -795,10 +795,10 @@ function Stickers({ cart, toggle, openCart, stickersList, activeSorteo }){
   const selectedIds = Object.keys(cart).map(k=>+k).filter(id => cart[id]);
   const qty = selectedIds.length;
   const total = calcPackPrice(qty, packsCfg);
-  const numeros = Math.floor(total / 1000);
+  const numeros = qty; // 1 numero por sticker
   const subtitle = activeSorteo
-    ? `Selecciona los dise\u00f1os que m\u00e1s te gustan. Cada $1.000 = 1 n\u00famero para ${activeSorteo.title}.`
-    : 'Selecciona los dise\u00f1os que m\u00e1s te gustan.';
+    ? `Selecciona los dise\u00f1os que m\u00e1s te gustan. Cada sticker = 1 n\u00famero para ${activeSorteo.title}.`
+    : 'Selecciona los dise\u00f1os que m\u00e1s te gustan. Cada sticker = 1 n\u00famero del sorteo.';
   return html`
     <section class="px-6 pt-32 pb-40 relative">
       <div class="max-w-7xl mx-auto">
@@ -885,7 +885,7 @@ function Sorteo({ goto, sorteos }){
     {label:'Organizador', value:'Claudio en Pista (@claudioenpista).'},
     {label:'Vigencia', value:'según fechas del sorteo activo.'},
     {label:'Participantes', value:'mayores de 18 años residentes en Chile con cédula vigente.'},
-    {label:'Mecánica', value:'por cada compra de stickers oficiales en el sitio, el participante recibe números correlativos (1 por cada $1.000 CLP gastados).'},
+    {label:'Mecánica', value:'por cada sticker comprado en el sitio el participante recibe 1 número aleatorio de participación. El precio se calcula por packs (1=$3.000, 2=$5.000, 5=$10.000) + extras a $3.000.'},
     {label:'Sorteo', value:'realizado ante Notario Público de Santiago y transmitido en vivo por Instagram.'},
     {label:'Premio', value:'según descripción del sorteo activo. No canjeable por dinero.'},
   ];
@@ -1027,7 +1027,7 @@ function CartDrawer({ open, close, cart, toggle, sub, stickersList, activeSorteo
   const packsCfg = (activeSorteo && activeSorteo.packsPricing) || DEFAULT_PACKS_PRICING;
   const qty = items.length;
   const total = calcPackPrice(qty, packsCfg);
-  const numeros = Math.floor(total / 1000);
+  const numeros = qty; // 1 numero por sticker
 
   function goToForm(){ setErrMsg(''); setStage('form'); }
   async function submitCheckout(){
@@ -1095,7 +1095,7 @@ function CartDrawer({ open, close, cart, toggle, sub, stickersList, activeSorteo
                 ${errMsg && html`<div class="text-xs text-red-400 text-center">${errMsg}</div>`}
                 <div class="border-t border-white/10 pt-4 space-y-2">
                   <div class="flex justify-between display text-xl"><span>TOTAL</span><span class="text-brand">$${total.toLocaleString('es-CL')}</span></div>
-                  <div class="text-xs tracking-widest text-neutral-500">🏁 ${Math.floor(total/1000)} NÚMEROS PARA EL SORTEO</div>
+                  <div class="text-xs tracking-widest text-neutral-500">🏁 OBTIENES ${qty} ${qty===1?'NÚMERO':'NÚMEROS'} PARA EL SORTEO</div>
                 </div>
                 <button onClick=${submitCheckout} class="w-full py-4 bg-brand text-black display tracking-widest text-lg rounded-full hover-glow">IR A PAGAR →</button>
                 <button onClick=${()=>setStage('idle')} class="w-full py-2 text-xs text-neutral-500 tracking-widest hover:text-brand">← VOLVER AL CARRITO</button>
@@ -1559,7 +1559,7 @@ const DEFAULT_SORTEOS = [{
     {label:'Organizador', value:'Claudio en Pista (@claudioenpista).'},
     {label:'Vigencia', value:'del 1 de mayo al 25 de octubre de 2026.'},
     {label:'Participantes', value:'mayores de 18 a\u00f1os residentes en Chile con c\u00e9dula vigente.'},
-    {label:'Mec\u00e1nica', value:'por cada compra de stickers oficiales en el sitio, el participante recibe n\u00fameros correlativos (1 por cada $1.000 CLP gastados).'},
+    {label:'Mec\u00e1nica', value:'por cada sticker comprado en el sitio el participante recibe 1 n\u00famero aleatorio de participaci\u00f3n. El precio se calcula por packs (1=$3.000, 2=$5.000, 5=$10.000) + extras a $3.000.'},
     {label:'Sorteo', value:'realizado ante Notario P\u00fablico de Santiago el 1 de noviembre de 2026 y transmitido en vivo por Instagram.'},
     {label:'Premio', value:'viaje para dos personas al GP de Brasil 2026 (vuelos, hotel 4 noches, entradas 3 d\u00edas, traslados y seguro). No canjeable por dinero.'}
   ]
