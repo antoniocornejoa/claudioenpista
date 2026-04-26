@@ -1015,6 +1015,105 @@ function validateRUT(rut){
   return dv === rutCalculateDV(body);
 }
 
+function Contacto({ showToast }){
+  const [form,setForm] = useState({ name:'', email:'', phone:'', subject:'', message:'' });
+  const [busy,setBusy] = useState(false);
+  const [errMsg,setErrMsg] = useState('');
+  const [done,setDone] = useState(false);
+
+  async function submit(){
+    setErrMsg('');
+    if (!form.name.trim() || form.name.trim().length < 2) return setErrMsg('Ingresá tu nombre');
+    if (!/\S+@\S+\.\S+/.test(form.email)) return setErrMsg('Email inválido');
+    if (!form.message.trim() || form.message.trim().length < 5) return setErrMsg('Escribí un mensaje (mín 5 caracteres)');
+    setBusy(true);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/send-contact`, {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` },
+        body: JSON.stringify({
+          name: form.name.trim(),
+          email: form.email.trim().toLowerCase(),
+          phone: form.phone.trim() || null,
+          subject: form.subject.trim() || null,
+          message: form.message.trim(),
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al enviar');
+      setDone(true);
+      if (showToast) showToast('✓ Mensaje enviado, te respondemos pronto');
+      setForm({ name:'', email:'', phone:'', subject:'', message:'' });
+    } catch(e){ setErrMsg(e.message || 'Error inesperado'); }
+    setBusy(false);
+  }
+
+  return html`
+    <section id="contacto" class="px-6 py-32 relative">
+      <div class="absolute inset-0 grain pointer-events-none"></div>
+      <div class="max-w-5xl mx-auto relative">
+        <${motion.div} initial=${{opacity:0,y:30}} whileInView=${{opacity:1,y:0}} viewport=${{once:true}} transition=${{duration:.7}}
+          class="mb-12">
+          <div class="text-xs tracking-[0.4em] text-brand mb-3">// ¿TENÉS DUDAS?</div>
+          <h2 class="display text-6xl md:text-8xl leading-none">CONTACTANOS</h2>
+          <p class="text-neutral-400 mt-5 max-w-xl">Escribinos por consultas sobre el sorteo, despachos, métodos de pago o cualquier otra cosa. Respondemos al toque a <span class="text-brand">contacto@grupomotor.cl</span>.</p>
+        </${motion.div}>
+
+        <div class="grid md:grid-cols-12 gap-6">
+          <!-- info lateral -->
+          <div class="md:col-span-4 space-y-4">
+            <div class="border border-white/10 rounded-2xl bg-white/5 backdrop-blur p-6">
+              <div class="text-[10px] tracking-[0.3em] text-brand mb-2">EMAIL</div>
+              <a href="mailto:contacto@grupomotor.cl" class="display text-lg hover:text-brand transition">contacto@grupomotor.cl</a>
+            </div>
+            <div class="border border-white/10 rounded-2xl bg-white/5 backdrop-blur p-6">
+              <div class="text-[10px] tracking-[0.3em] text-brand mb-2">INSTAGRAM</div>
+              <a href="https://instagram.com/claudioenpista" target="_blank" rel="noopener" class="display text-lg hover:text-brand transition">@claudioenpista</a>
+            </div>
+            <div class="border border-white/10 rounded-2xl bg-white/5 backdrop-blur p-6">
+              <div class="text-[10px] tracking-[0.3em] text-brand mb-2">TIEMPO DE RESPUESTA</div>
+              <div class="display text-lg">24h hábiles</div>
+            </div>
+          </div>
+
+          <!-- form -->
+          <div class="md:col-span-8 border border-white/10 rounded-3xl bg-black/40 backdrop-blur p-8 neon-border">
+            ${done ? html`
+              <div class="text-center py-10">
+                <${motion.div} initial=${{scale:0}} animate=${{scale:1}} transition=${{type:'spring'}}
+                  class="w-20 h-20 bg-brand rounded-full flex items-center justify-center mx-auto text-4xl text-black">✓</${motion.div}>
+                <div class="display text-3xl mt-6">MENSAJE ENVIADO</div>
+                <p class="text-neutral-400 mt-3">Te respondemos a la brevedad al email que ingresaste.</p>
+                <button onClick=${()=>setDone(false)} class="mt-8 px-8 py-3 border border-white/20 hover:border-brand display tracking-widest rounded-full">ESCRIBIR OTRO</button>
+              </div>
+            ` : html`
+              <div class="grid sm:grid-cols-2 gap-4">
+                <input value=${form.name} onChange=${e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Nombre *"
+                  class="bg-black/40 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-brand"/>
+                <input type="email" value=${form.email} onChange=${e=>setForm(f=>({...f,email:e.target.value}))} placeholder="Email *"
+                  class="bg-black/40 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-brand"/>
+                <input value=${form.phone} onChange=${e=>setForm(f=>({...f,phone:e.target.value}))} placeholder="Teléfono (opcional)"
+                  class="bg-black/40 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-brand"/>
+                <input value=${form.subject} onChange=${e=>setForm(f=>({...f,subject:e.target.value}))} placeholder="Asunto (opcional)"
+                  class="bg-black/40 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-brand"/>
+                <textarea value=${form.message} onChange=${e=>setForm(f=>({...f,message:e.target.value}))} rows="6"
+                  placeholder="Tu mensaje *"
+                  class="sm:col-span-2 bg-black/40 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-brand resize-none"></textarea>
+              </div>
+              ${errMsg && html`<div class="text-red-400 text-sm mt-3">${errMsg}</div>`}
+              <button onClick=${submit} disabled=${busy}
+                class="mt-6 w-full sm:w-auto px-10 py-4 bg-brand text-black display tracking-widest rounded-full hover-glow disabled:opacity-50">
+                ${busy ? 'ENVIANDO...' : 'ENVIAR MENSAJE →'}
+              </button>
+              <div class="text-[10px] text-neutral-600 tracking-widest mt-4">RESPONDEMOS A TU EMAIL · NO COMPARTIMOS TUS DATOS</div>
+            `}
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
 function CartDrawer({ open, close, cart, toggle, sub, stickersList, activeSorteo }){
   const [stage,setStage] = useState('idle');
   const [form,setForm] = useState({name:'',email:'',rut:'',phone:''});
@@ -1734,14 +1833,24 @@ function App(){
           <${Marquee}/>
           <${HorizontalGallery} goto=${goto} heroCards=${heroCards}/>
           <${Sorteo} goto=${goto} sorteos=${sorteos}/>
+          <${Contacto} showToast=${showToast}/>
         </${React.Fragment}>
       `}
       ${tab==='sorteo' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase cursor-pointer">\u2190 VOLVER A INICIO</button></div><${Sorteo} goto=${goto} sorteos=${sorteos}/></div>`}
       ${tab==='stickers' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase cursor-pointer">\u2190 VOLVER A INICIO</button></div><${Stickers} cart=${cart} toggle=${toggle} openCart=${()=>setCartOpen(true)} stickersList=${stickersList} activeSorteo=${activeSorteo}/></div>`}
 
-      <footer class="border-t border-white/10 mt-20 py-10 text-center">
+      <footer class="border-t border-white/10 mt-20 py-10 text-center px-6">
         <div class="display text-2xl text-brand">CLAUDIO EN PISTA</div>
-        <div class="text-xs tracking-[0.3em] text-neutral-600 mt-2">© 2026 · DEMO PREMIUM · STRIPE SANDBOX</div>
+        <div class="flex items-center justify-center gap-6 mt-4 text-xs tracking-[0.3em] text-neutral-400 flex-wrap">
+          <a href="mailto:contacto@grupomotor.cl" class="hover:text-brand">CONTACTO@GRUPOMOTOR.CL</a>
+          <span class="text-neutral-700">·</span>
+          <a href="https://instagram.com/claudioenpista" target="_blank" rel="noopener" class="hover:text-brand">@CLAUDIOENPISTA</a>
+          ${tab==='home' && html`
+            <span class="text-neutral-700">·</span>
+            <button onClick=${()=>{ const el=document.getElementById('contacto'); if(el) el.scrollIntoView({behavior:'smooth'}); }} class="hover:text-brand uppercase">CONTACTO</button>
+          `}
+        </div>
+        <div class="text-[10px] tracking-[0.3em] text-neutral-600 mt-4">© 2026 CLAUDIO EN PISTA · TODOS LOS DERECHOS RESERVADOS</div>
       </footer>
 
       <${CartDrawer} open=${cartOpen} close=${()=>setCartOpen(false)} cart=${cart} toggle=${toggle} sub=${sub} stickersList=${stickersList} activeSorteo=${activeSorteo}/>
