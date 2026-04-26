@@ -627,7 +627,7 @@ function Counter({ to, duration=2, suffix='' }){
 }
 
 /* ============== COMPONENTS ============== */
-function Nav({ tab, setTab, cartCount, openCart, openAdmin }){
+function Nav({ tab, setTab, cartCount, openCart, openAdmin, goToContact }){
   const tabs = [['home','INICIO'],['sorteo','SORTEO'],['stickers','TIENDA']];
   return html`
     <header class="fixed top-0 left-0 right-0 z-30 px-6 py-4 backdrop-blur-md bg-black/40 border-b border-white/5">
@@ -646,6 +646,10 @@ function Nav({ tab, setTab, cartCount, openCart, openAdmin }){
               ${label}
             </button>
           `)}
+          <button onClick=${goToContact}
+            class="display text-sm tracking-widest px-4 py-2 rounded-full transition text-neutral-300 hover:text-brand">
+            CONTACTO
+          </button>
         </nav>
         <div class="flex items-center gap-2">
           <button onClick=${openCart} class="relative px-4 py-2 rounded-full border border-white/15 hover:border-brand hover-glow display tracking-widest text-sm">
@@ -1838,7 +1842,12 @@ function App(){
 
   return html`
     <${React.Fragment}>
-      <${Nav} tab=${tab} setTab=${goto} cartCount=${cartCount} openCart=${()=>setCartOpen(true)} openAdmin=${()=>setAdminOpen(true)}/>
+      <${Nav} tab=${tab} setTab=${goto} cartCount=${cartCount} openCart=${()=>setCartOpen(true)} openAdmin=${()=>setAdminOpen(true)}
+        goToContact=${()=>{
+          const scrollToContacto = () => { const el = document.getElementById('contacto'); if (el) el.scrollIntoView({ behavior:'smooth', block:'start' }); };
+          if (tab === 'home') scrollToContacto();
+          else { goto('home'); setTimeout(scrollToContacto, 400); }
+        }}/>
       ${tab==='home' && html`
         <${React.Fragment}>
           <${Hero} goto=${goto}/>
