@@ -168,6 +168,38 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 
 const DEFAULT_PACKS_PRICING = { packs:[{n:1,price:3000},{n:2,price:5000},{n:5,price:10000}], extra_price:3000 };
 
+/* ===== Helpers fecha Chile ↔ ISO ===== */
+// ISO timestamptz → string para <input type="datetime-local"> en hora Chile
+function isoToChileLocal(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Santiago',
+    year:'numeric', month:'2-digit', day:'2-digit',
+    hour:'2-digit', minute:'2-digit', hour12:false
+  });
+  const parts = Object.fromEntries(fmt.formatToParts(d).filter(p=>p.type!=='literal').map(p=>[p.type,p.value]));
+  const hour = parts.hour === '24' ? '00' : parts.hour;
+  return `${parts.year}-${parts.month}-${parts.day}T${hour}:${parts.minute}`;
+}
+// String "YYYY-MM-DDTHH:MM" interpretado como hora Chile → ISO timestamptz
+function chileLocalToISO(local) {
+  if (!local) return null;
+  const asUTC = new Date(local + ':00Z'); // primero parseamos como si fuera UTC
+  if (isNaN(asUTC.getTime())) return null;
+  const offsetStr = new Intl.DateTimeFormat('en', {
+    timeZone:'America/Santiago', timeZoneName:'shortOffset'
+  }).formatToParts(asUTC).find(p=>p.type==='timeZoneName').value;
+  const m = offsetStr.match(/GMT([+-])(\d{1,2})(?::(\d{2}))?/);
+  let offsetMins = -240; // fallback CLT
+  if (m) {
+    const sign = m[1]==='-' ? -1 : 1;
+    offsetMins = sign * (parseInt(m[2])*60 + parseInt(m[3]||'0'));
+  }
+  return new Date(asUTC.getTime() - offsetMins * 60000).toISOString();
+}
+
 const dbToSorteo = (s) => ({
   id: s.id,
   title: s.title,
@@ -1030,7 +1062,8 @@ function Countdown({ targetDate, label='HASTA EL CIERRE' }){
 }
 
 function Hero({ goto, activeSorteo }){
-  const endDate = activeSorteo?.end ? new Date(activeSorteo.end + 'T23:59:59-03:00') : null;
+  // end ahora viene como timestamptz ISO string desde la DB
+  const endDate = activeSorteo?.end ? new Date(activeSorteo.end) : null;
   return html`
     <section class="relative min-h-screen flex items-center px-6 pt-32 pb-20">
       <div class="absolute inset-0 grain pointer-events-none"></div>
@@ -1220,7 +1253,7 @@ function Stickers({ cart, toggle, openCart, stickersList, activeSorteo }){
   // Si el sorteo activo está cerrado (frozen/completed), pasó la fecha del seed, o pasó end_date → mostrar pantalla de cierre
   const lifecycle = activeSorteo?.lifecycleStatus || 'open';
   const seedTargetPassed = activeSorteo?.seedTargetAt && new Date(activeSorteo.seedTargetAt).getTime() <= Date.now();
-  const endDatePassed = activeSorteo?.end && new Date(activeSorteo.end + 'T23:59:59').getTime() < Date.now();
+  const endDatePassed = activeSorteo?.end && new Date(activeSorteo.end).getTime() < Date.now();
   const sorteoCerrado = lifecycle !== 'open' || seedTargetPassed || endDatePassed;
   if (sorteoCerrado) {
     const titulo = lifecycle === 'completed' ? 'SORTEO FINALIZADO'
@@ -1228,7 +1261,7 @@ function Stickers({ cart, toggle, openCart, stickersList, activeSorteo }){
       : (seedTargetPassed || endDatePassed) ? 'COMPRAS CERRADAS'
       : 'SORTEO NO DISPONIBLE';
     const mensaje = lifecycle === 'completed' ? 'Este sorteo ya fue ejecutado. Espera el próximo.'
-      : endDatePassed ? `Las compras se cerraron el ${activeSorteo.end ? new Date(activeSorteo.end+'T00:00').toLocaleDateString('es-CL') : ''}. Estamos preparando la ejecución del sorteo.`
+      : endDatePassed ? `Las compras se cerraron el ${activeSorteo.end ? new Date(activeSorteo.end).toLocaleString('es-CL', {timeZone:'America/Santiago', day:'numeric', month:'long', hour:'2-digit', minute:'2-digit'}) : ''}. Estamos preparando la ejecución del sorteo.`
       : 'Las compras del sorteo se cerraron. Estamos esperando el momento de la ejecución.';
     return html`
       <section class="px-6 py-32 min-h-[60vh] flex items-center">
@@ -2135,16 +2168,22 @@ function SorteoVRFAdmin({ sorteos, refreshSorteos, showToast }){
 
   const sorteo = sorteos.find(s => s.id === selectedId) || null;
 
-  // Pre-llenar seed_target_at con end_date + 20:00 cuando se elige un sorteo, si tiene end_date.
-  // (8pm hora de Chile del mismo día de cierre — un par de horas después de cerrar las compras)
+  // Pre-llenar seed_target_at con end_date + 2 horas cuando se elige un sorteo, si tiene end_date.
+  // (un par de horas después del cierre de compras, suficiente para que se mine al menos 1 bloque BTC)
   useEffect(()=>{
     if (sorteo && sorteo.lifecycleStatus === 'open' && sorteo.end && !seedTargetAt) {
-      // datetime-local format: YYYY-MM-DDTHH:MM
-      setSeedTargetAt(`${sorteo.end}T20:00`);
+      // sorteo.end es ahora un timestamptz ISO. Sumar 2hs y formatear como datetime-local Chile
+      const endMs = new Date(sorteo.end).getTime();
+      const targetMs = endMs + 2*60*60*1000;
+      const target = new Date(targetMs);
+      // Convertir a hora local Chile (timeZoneName: 'short' garantiza CLT/CLST)
+      const fmt = new Intl.DateTimeFormat('en-CA', { timeZone:'America/Santiago', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false });
+      const parts = Object.fromEntries(fmt.formatToParts(target).filter(p=>p.type!=='literal').map(p=>[p.type,p.value]));
+      setSeedTargetAt(`${parts.year}-${parts.month}-${parts.day}T${parts.hour==='24'?'00':parts.hour}:${parts.minute}`);
     }
   }, [sorteo?.id]);
 
-  const endPassed = sorteo?.end && new Date(sorteo.end + 'T23:59:59-03:00').getTime() < Date.now();
+  const endPassed = sorteo?.end && new Date(sorteo.end).getTime() < Date.now();
 
   async function handleFreeze(){
     if (!sorteo) return;
@@ -2203,15 +2242,15 @@ function SorteoVRFAdmin({ sorteos, refreshSorteos, showToast }){
             <div>
               ${sorteo.end && html`
                 <div class="bg-brand/10 border border-brand/40 rounded-xl p-4 mb-5 text-sm">
-                  <div class="text-[10px] tracking-widest text-brand mb-1">// FECHA DE CIERRE DE COMPRAS</div>
-                  <div class="text-white">${new Date(sorteo.end + 'T00:00').toLocaleDateString('es-CL', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}</div>
-                  <div class="text-xs text-neutral-400 mt-1">${endPassed ? '✓ Las compras ya se cerraron automáticamente. Puedes freezear ahora.' : 'Las compras se cerrarán automáticamente al final de ese día (23:59 CLT).'}</div>
+                  <div class="text-[10px] tracking-widest text-brand mb-1">// CIERRE DE COMPRAS DE STICKERS</div>
+                  <div class="text-white">${new Date(sorteo.end).toLocaleString('es-CL', { timeZone:'America/Santiago', weekday:'long', year:'numeric', month:'long', day:'numeric', hour:'2-digit', minute:'2-digit' })} <span class="text-neutral-500 text-xs">(Chile)</span></div>
+                  <div class="text-xs text-neutral-400 mt-1">${endPassed ? '✓ Las compras ya se cerraron automáticamente. Puedes freezear ahora.' : 'A esa hora exacta el sistema dejará de aceptar compras automáticamente.'}</div>
                 </div>
               `}
               ${!sorteo.end && html`
                 <div class="bg-yellow-900/30 border border-yellow-700/40 rounded-xl p-4 mb-5 text-sm">
-                  <div class="text-yellow-400">⚠ Este sorteo no tiene fecha de cierre definida.</div>
-                  <div class="text-xs text-neutral-400 mt-1">Vuelve al panel SORTEOS y completa el campo "CIERRE" para que el sistema cierre las compras automáticamente.</div>
+                  <div class="text-yellow-400">⚠ Este sorteo no tiene fecha de cierre de compras definida.</div>
+                  <div class="text-xs text-neutral-400 mt-1">Vuelve al panel SORTEOS y completa el campo "CIERRE COMPRAS" para que el sistema cierre las compras automáticamente.</div>
                 </div>
               `}
               <div class="text-sm text-neutral-300 mb-4 leading-relaxed">
@@ -2220,10 +2259,10 @@ function SorteoVRFAdmin({ sorteos, refreshSorteos, showToast }){
               <div class="bg-black/40 border border-white/10 rounded-xl p-5 mb-4 text-xs">
                 <div class="text-neutral-500 mb-2">¿CUÁNDO SE TOMA EL SEED DE BITCOIN?</div>
                 <div class="text-neutral-300 leading-relaxed">
-                  Por defecto, las 20:00 CLT del día de cierre del sorteo. El sistema usará el hash del primer bloque de Bitcoin minado <strong>después</strong> de ese momento. Cualquiera puede verificar en <a href="https://mempool.space" target="_blank" class="text-brand hover:underline">mempool.space</a>.
+                  Esta es la <strong>fecha del sorteo</strong> y es independiente del cierre de compras. Por defecto se sugieren <strong>2 horas después</strong> del cierre, así nos aseguramos que ya hubo bloques BTC minados después del cierre. El sistema usará el hash del primer bloque de Bitcoin minado <strong>después</strong> de ese momento. Cualquiera puede verificar en <a href="https://mempool.space" target="_blank" class="text-brand hover:underline">mempool.space</a>.
                 </div>
               </div>
-              <label class="text-xs text-neutral-500 tracking-widest block mb-2">FECHA/HORA OBJETIVO DEL SEED (CHILE) ${sorteo.end && html`<span class="text-brand normal-case ml-2 lowercase tracking-normal">(auto-vinculado al cierre)</span>`}</label>
+              <label class="text-xs text-neutral-500 tracking-widest block mb-2">FECHA/HORA DEL SORTEO (CHILE) ${sorteo.end && html`<span class="text-brand normal-case ml-2 lowercase tracking-normal">(sugerencia: cierre + 2h)</span>`}</label>
               <input type="datetime-local" value=${seedTargetAt} onChange=${e=>setSeedTargetAt(e.target.value)}
                 class="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 outline-none focus:border-brand mb-5"/>
               <button onClick=${handleFreeze} disabled=${busy || !seedTargetAt}
@@ -2554,7 +2593,7 @@ function Admin({ open, close, sorteos, stickersList,
                             <div class="flex flex-wrap gap-3 items-center">
                               <input value=${s.title} onChange=${e=>patchSorteoLocal(i,{title:e.target.value})} placeholder="T\u00edtulo" class="flex-1 min-w-[200px] bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand"/>
                               <input value=${s.prize} onChange=${e=>patchSorteoLocal(i,{prize:e.target.value})} placeholder="Descripci\u00f3n" class="flex-1 min-w-[150px] bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand"/>
-                              <label class="flex items-center gap-2 text-[10px] text-neutral-500 tracking-widest"><span>CIERRE:</span><input type="date" value=${s.end||''} onChange=${e=>patchSorteoLocal(i,{end:e.target.value})} class="bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand text-xs" title="Fecha de cierre de compras"/></label>
+                              <label class="flex items-center gap-2 text-[10px] text-neutral-500 tracking-widest"><span>CIERRE COMPRAS:</span><input type="datetime-local" value=${isoToChileLocal(s.end)} onChange=${e=>patchSorteoLocal(i,{end:chileLocalToISO(e.target.value)})} class="bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand text-xs" title="Fecha y hora de cierre de compras de stickers (hora Chile)"/></label>
                               <label class="flex items-center gap-2 text-xs"><input type="checkbox" checked=${s.active} onChange=${e=>patchSorteoLocal(i,{active:e.target.checked})}/> ON</label>
                               <button onClick=${()=>patchSorteoLocal(i,{status:s.status==='bloqueado'?'activo':'bloqueado'})} class=${"px-2 py-1 rounded-lg text-xs border "+(s.status==='bloqueado'?"border-red-500 text-red-400 bg-red-900/30":"border-green-500 text-green-400 bg-green-900/30")}>${s.status==='bloqueado'?'BLOQUEADO':'ACTIVO'}</button>
                               <button onClick=${()=>togglePanel(i,'hero')} class=${"px-2 py-1 rounded-lg text-xs border "+(isPanel(i,'hero')?"border-brand text-brand":"border-white/20 text-neutral-400")}>${isPanel(i,'hero')?'CERRAR':'HERO CARDS'}</button>
@@ -2797,7 +2836,7 @@ const DEFAULT_SORTEOS = [{
   title:'Viaje F1 Brasil 2026',
   prize:'2 personas a Interlagos',
   start:'2026-05-01',
-  end:'2026-10-25',
+  end:'2026-10-25T23:59:59-04:00',
   active:true,
   status:'activo',
   heroCards:[
