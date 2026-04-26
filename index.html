@@ -1104,7 +1104,14 @@ function Marquee(){
 function HorizontalGallery({ goto, heroCards }){
   const trackRef = useRef(null);
   const sectionRef = useRef(null);
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
   useEffect(()=>{
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  },[]);
+  useEffect(()=>{
+    if (isMobile) return; // en móvil no usamos pin/scrollTrigger (da sensación de scroll bloqueado)
     const ctx = gsap.context(()=>{
       gsap.to(trackRef.current,{
         xPercent:-65,
@@ -1113,13 +1120,40 @@ function HorizontalGallery({ goto, heroCards }){
       });
     });
     return ()=>ctx.revert();
-  },[]);
+  },[isMobile]);
   const defaults = [
     {title:'INTERLAGOS', desc:'4.309 KM · 71 VUELTAS', color1:'#22c55e', color2:'#eab308'},
     {title:'SAO PAULO',  desc:'BRASIL · NOVIEMBRE 2026', color1:'#eab308', color2:'#ff6a00'},
     {title:'GRAND PRIX', desc:'EXPERIENCIA VIP', color1:'#ff6a00', color2:'#dc2626'},
   ];
   const items = (heroCards && heroCards.length) ? heroCards : defaults;
+
+  if (isMobile) {
+    // Móvil: stack vertical compacto, sin pin, scroll natural de la página
+    return html`
+      <section class="py-14">
+        <div class="px-6 max-w-7xl mx-auto w-full">
+          <h2 class="display text-5xl leading-none mb-6">EL <span class="text-brand">PREMIO</span></h2>
+          <div class="flex flex-col gap-4">
+            ${items.map((it,i)=>html`
+              <div key=${i} onClick=${()=>goto('sorteo')}
+                   style=${{background:`linear-gradient(135deg, ${(it.color1||'#ff6a00')}55, ${(it.color2||'#dc2626')}33)`}}
+                   class="rounded-2xl border border-white/10 p-5 flex flex-col justify-between relative overflow-hidden cursor-pointer min-h-[180px] active:scale-[.98] transition">
+                <div class="absolute inset-0 checker"></div>
+                <div class="relative">
+                  <div class="text-[10px] tracking-[0.4em] text-neutral-300">PREMIO · 0${i+1}</div>
+                  <div class="display text-3xl mt-2">${it.title}</div>
+                </div>
+                <div class="relative text-xs tracking-widest text-neutral-200 mt-5">${it.desc}</div>
+              </div>
+            `)}
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
+  // Desktop: pinned horizontal scroll (experiencia original)
   return html`
     <section ref=${sectionRef} class="h-screen overflow-hidden flex items-center">
       <div class="px-6 max-w-7xl mx-auto w-full">
