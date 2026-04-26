@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Claudio en Pista — Sorteo F1 Brasil 2026 · Stickers Oficiales</title>
-<meta name="description" content="Participá del sorteo oficial del viaje a la F1 Brasil 2026 (Interlagos). Comprá stickers digitales y obtené tu número aleatorio. Sorteo notariado y verificable matemáticamente." />
+<meta name="description" content="Participa del sorteo oficial del viaje a la F1 Brasil 2026 (Interlagos). Compra stickers digitales y obtén tu número aleatorio. Sorteo notariado y verificable matemáticamente." />
 <meta name="keywords" content="sorteo F1, claudio en pista, GP Brasil, Interlagos 2026, sorteo Chile, viaje Formula 1, stickers F1, sorteo notariado" />
 <meta name="author" content="Claudio en Pista" />
 <meta name="theme-color" content="#ff6a00" />
@@ -13,13 +13,13 @@
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="Claudio en Pista" />
 <meta property="og:title" content="Claudio en Pista — Sorteo F1 Brasil 2026" />
-<meta property="og:description" content="Ganá un viaje a la F1 Brasil 2026 (Interlagos). Comprá stickers digitales oficiales y participá. Sorteo notariado y matemáticamente verificable." />
+<meta property="og:description" content="Gana un viaje a la F1 Brasil 2026 (Interlagos). Compra stickers digitales oficiales y participa. Sorteo notariado y matemáticamente verificable." />
 <meta property="og:url" content="https://claudioenpista.grupomotor.cl/" />
 <meta property="og:locale" content="es_CL" />
 <!-- Twitter -->
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="Claudio en Pista — Sorteo F1 Brasil 2026" />
-<meta name="twitter:description" content="Ganá un viaje a la F1 Brasil 2026. Stickers digitales oficiales + sorteo notariado." />
+<meta name="twitter:description" content="Gana un viaje a la F1 Brasil 2026. Stickers digitales oficiales + sorteo notariado." />
 <!-- Google Analytics 4 (placeholder — cambiar GA_MEASUREMENT_ID por el real) -->
 <script>
   window.GA_ID = ''; // ej: 'G-XXXXXXXXXX' — dejá vacío para deshabilitar
@@ -152,7 +152,7 @@ import htm from 'htm';
 import { createClient } from '@supabase/supabase-js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-// Si querés usar un modelo GLB foto-realista, asigná la URL:
+// Si quieres usar un modelo GLB foto-realista, asigna la URL:
 // window.F1_MODEL_URL = 'https://osoblthqksoreeeazeuu.supabase.co/storage/v1/object/public/...';
 // Si está vacío, se usa el modelo procedural detallado.
 
@@ -1193,7 +1193,7 @@ function Stickers({ cart, toggle, openCart, stickersList, activeSorteo }){
       : lifecycle === 'frozen' ? 'COMPRAS CERRADAS'
       : (seedTargetPassed || endDatePassed) ? 'COMPRAS CERRADAS'
       : 'SORTEO NO DISPONIBLE';
-    const mensaje = lifecycle === 'completed' ? 'Este sorteo ya fue ejecutado. Aguardá el próximo.'
+    const mensaje = lifecycle === 'completed' ? 'Este sorteo ya fue ejecutado. Espera el próximo.'
       : endDatePassed ? `Las compras se cerraron el ${activeSorteo.end ? new Date(activeSorteo.end+'T00:00').toLocaleDateString('es-CL') : ''}. Estamos preparando la ejecución del sorteo.`
       : 'Las compras del sorteo se cerraron. Estamos esperando el momento de la ejecución.';
     return html`
@@ -1255,7 +1255,7 @@ function Stickers({ cart, toggle, openCart, stickersList, activeSorteo }){
             <div class="h-2 bg-white/5 rounded-full overflow-hidden">
               <div class="h-full bg-gradient-to-r from-brand to-yellow-400" style=${{width: Math.min(100, (emitidos / 1000) * 100) + '%'}}></div>
             </div>
-            <div class="text-[10px] text-neutral-500 mt-2 tracking-widest">🔥 Sumate antes de que cierre</div>
+            <div class="text-[10px] text-neutral-500 mt-2 tracking-widest">🔥 Súmate antes de que cierre</div>
           </div>
         `}
 
@@ -1331,7 +1331,7 @@ function Sorteo({ goto, sorteos }){
   const dbases=[
     {label:'Organizador', value:'Claudio en Pista (@claudioenpista).'},
     {label:'Vigencia', value:'según fechas del sorteo activo.'},
-    {label:'Participantes', value:'mayores de 18 años residentes en Chile con cédula vigente.'},
+    {label:'Participantes', value:'mayores de 18 años con residencia en Chile y RUT vigente.'},
     {label:'Mecánica', value:'por cada sticker comprado en el sitio el participante recibe 1 número aleatorio de participación. El precio se calcula por packs (1=$3.000, 2=$5.000, 5=$10.000) + extras a $3.000.'},
     {label:'Sorteo', value:'realizado ante Notario Público de Santiago y transmitido en vivo por Instagram.'},
     {label:'Premio', value:'según descripción del sorteo activo. No canjeable por dinero.'},
@@ -1471,7 +1471,7 @@ function MisCompras({ onClose }){
   async function submit(){
     setErrMsg('');
     if (!/\S+@\S+\.\S+/.test(form.email)) return setErrMsg('Email inválido');
-    if (!validateRUT(form.rut)) return setErrMsg('RUT inválido — revisá el dígito verificador');
+    if (!validateRUT(form.rut)) return setErrMsg('RUT inválido — revisa el dígito verificador');
     setBusy(true);
     try {
       const res = await dbFetchMyOrders(form.email.trim().toLowerCase(), form.rut.trim());
@@ -1492,7 +1492,7 @@ function MisCompras({ onClose }){
           <div class="text-center mb-10">
             <div class="text-xs tracking-[0.4em] text-brand mb-3">// CONSULTA DE PARTICIPACIONES</div>
             <h2 class="display text-6xl md:text-8xl leading-none mb-4">MIS COMPRAS</h2>
-            <p class="text-neutral-400 max-w-xl mx-auto">Ingresá el email y RUT que usaste al comprar para ver todas tus participaciones, números asignados y el estado de cada sorteo.</p>
+            <p class="text-neutral-400 max-w-xl mx-auto">Ingresa el correo y RUT que usaste al comprar para ver todas tus participaciones, números asignados y el estado de cada sorteo.</p>
           </div>
           <div class="max-w-md mx-auto border border-white/10 rounded-3xl bg-black/40 backdrop-blur p-8 neon-border space-y-4">
             <input type="email" value=${form.email} onChange=${e=>setForm(f=>({...f,email:e.target.value}))} placeholder="Email"
@@ -1648,9 +1648,9 @@ function Contacto({ showToast }){
 
   async function submit(){
     setErrMsg('');
-    if (!form.name.trim() || form.name.trim().length < 2) return setErrMsg('Ingresá tu nombre');
+    if (!form.name.trim() || form.name.trim().length < 2) return setErrMsg('Ingresa tu nombre');
     if (!/\S+@\S+\.\S+/.test(form.email)) return setErrMsg('Email inválido');
-    if (!form.message.trim() || form.message.trim().length < 5) return setErrMsg('Escribí un mensaje (mín 5 caracteres)');
+    if (!form.message.trim() || form.message.trim().length < 5) return setErrMsg('Escribe un mensaje (mín 5 caracteres)');
     setBusy(true);
     try {
       const res = await fetch(`${SUPABASE_URL}/functions/v1/send-contact`, {
@@ -1681,7 +1681,7 @@ function Contacto({ showToast }){
           class="mb-12">
           <div class="text-xs tracking-[0.4em] text-brand mb-3">// ¿TENÉS DUDAS?</div>
           <h2 class="display text-6xl md:text-8xl leading-none">CONTACTANOS</h2>
-          <p class="text-neutral-400 mt-5 max-w-xl">Escribinos por consultas sobre el sorteo, despachos, métodos de pago o cualquier otra cosa. Respondemos al toque a <span class="text-brand">contacto@grupomotor.cl</span>.</p>
+          <p class="text-neutral-400 mt-5 max-w-xl">Escríbenos por consultas sobre el sorteo, métodos de pago o cualquier otra cosa. Respondemos altiro a <span class="text-brand">contacto@grupomotor.cl</span>.</p>
         </${motion.div}>
 
         <div class="grid md:grid-cols-12 gap-6">
@@ -1757,11 +1757,11 @@ function CartDrawer({ open, close, cart, toggle, sub, stickersList, activeSorteo
   function goToForm(){ setErrMsg(''); setStage('form'); }
   async function submitCheckout(){
     setErrMsg('');
-    if (!form.name.trim()) return setErrMsg('Ingresá tu nombre');
+    if (!form.name.trim()) return setErrMsg('Ingresa tu nombre');
     if (!/\S+@\S+\.\S+/.test(form.email)) return setErrMsg('Email inválido');
     if (!form.rut.trim()) return setErrMsg('El RUT es obligatorio');
-    if (!validateRUT(form.rut)) return setErrMsg('RUT inválido — revisá el dígito verificador');
-    if (!acceptTerms) return setErrMsg('Tenés que aceptar los Términos y Condiciones');
+    if (!validateRUT(form.rut)) return setErrMsg('RUT inválido — revisa el dígito verificador');
+    if (!acceptTerms) return setErrMsg('Tienes que aceptar los Términos y Condiciones');
     setStage('redirecting');
     try {
       const payload = {
@@ -1832,7 +1832,7 @@ function CartDrawer({ open, close, cart, toggle, sub, stickersList, activeSorteo
                 <button onClick=${()=>setStage('idle')} class="w-full py-2 text-xs text-neutral-500 tracking-widest hover:text-brand">← VOLVER AL CARRITO</button>
               </div>
             ` : items.length===0 ? html`
-              <div class="p-10 text-center text-neutral-500">Tu carrito está vacío. Volvé a la tienda y seleccioná stickers.</div>
+              <div class="p-10 text-center text-neutral-500">Tu carrito está vacío. Vuelve a la tienda y selecciona stickers.</div>
             ` : html`
               <div class="p-6 space-y-2">
                 <div class="text-[10px] tracking-[0.3em] text-brand mb-2">// ${qty} ${qty===1?'STICKER SELECCIONADO':'STICKERS SELECCIONADOS'}</div>
@@ -2077,7 +2077,7 @@ function BoletasAdmin({ showToast }){
       <div class="mt-6 p-5 bg-yellow-900/10 border border-yellow-700/30 rounded-2xl text-xs text-yellow-200/80">
         <div class="display text-sm mb-2 text-yellow-300">📋 CONFIGURACIÓN OPENFACTURA</div>
         <div class="space-y-1 text-neutral-300">
-          <div>Cuando termines el setup en openfactura.com, mandame estos datos para activar la emisión automática:</div>
+          <div>Cuando termines el setup en openfactura.com, mándame estos datos para activar la emisión automática:</div>
           <ul class="list-disc list-inside text-xs mt-2 space-y-1 ml-2">
             <li>API Key (token de OpenFactura)</li>
             <li>RUT emisor (formato 76.XXX.XXX-X)</li>
@@ -2114,7 +2114,7 @@ function SorteoVRFAdmin({ sorteos, refreshSorteos, showToast }){
 
   async function handleFreeze(){
     if (!sorteo) return;
-    if (!seedTargetAt) return showToast('Definí la fecha/hora del seed', 'err');
+    if (!seedTargetAt) return showToast('Define la fecha/hora del seed', 'err');
     if (!confirm(`¿Freezear el sorteo "${sorteo.title}"? Esta acción es IRREVERSIBLE: la lista de números queda hasheada y publicada. No se aceptarán más compras después de este momento.`)) return;
     setBusy(true);
     try {
@@ -2127,7 +2127,7 @@ function SorteoVRFAdmin({ sorteos, refreshSorteos, showToast }){
   }
   async function handleExecute(){
     if (!sorteo) return;
-    if (!blockHeight) return showToast('Ingresá el número de bloque BTC', 'err');
+    if (!blockHeight) return showToast('Ingresa el número de bloque BTC', 'err');
     if (!confirm(`¿Ejecutar sorteo "${sorteo.title}" con bloque BTC #${blockHeight}? Esta acción es IRREVERSIBLE y selecciona al ganador.`)) return;
     setBusy(true);
     try {
@@ -2149,7 +2149,7 @@ function SorteoVRFAdmin({ sorteos, refreshSorteos, showToast }){
         <div class="text-xs tracking-widest text-brand mb-3">SELECCIONAR SORTEO</div>
         <select value=${selectedId||''} onChange=${e=>{setSelectedId(+e.target.value || null); setSeedTargetAt(''); setBlockHeight('');}}
           class="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 outline-none focus:border-brand">
-          <option value="">— elegí un sorteo —</option>
+          <option value="">— elige un sorteo —</option>
           ${sorteos.map(s => html`<option key=${s.id} value=${s.id}>${s.title} · ${s.lifecycleStatus.toUpperCase()}</option>`)}
         </select>
       </div>
@@ -2171,13 +2171,13 @@ function SorteoVRFAdmin({ sorteos, refreshSorteos, showToast }){
                 <div class="bg-brand/10 border border-brand/40 rounded-xl p-4 mb-5 text-sm">
                   <div class="text-[10px] tracking-widest text-brand mb-1">// FECHA DE CIERRE DE COMPRAS</div>
                   <div class="text-white">${new Date(sorteo.end + 'T00:00').toLocaleDateString('es-CL', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}</div>
-                  <div class="text-xs text-neutral-400 mt-1">${endPassed ? '✓ Las compras ya se cerraron automáticamente. Podés freezear ahora.' : 'Las compras se cerrarán automáticamente al final de ese día (23:59 CLT).'}</div>
+                  <div class="text-xs text-neutral-400 mt-1">${endPassed ? '✓ Las compras ya se cerraron automáticamente. Puedes freezear ahora.' : 'Las compras se cerrarán automáticamente al final de ese día (23:59 CLT).'}</div>
                 </div>
               `}
               ${!sorteo.end && html`
                 <div class="bg-yellow-900/30 border border-yellow-700/40 rounded-xl p-4 mb-5 text-sm">
                   <div class="text-yellow-400">⚠ Este sorteo no tiene fecha de cierre definida.</div>
-                  <div class="text-xs text-neutral-400 mt-1">Volvé al panel SORTEOS y completá el campo "CIERRE" para que el sistema cierre las compras automáticamente.</div>
+                  <div class="text-xs text-neutral-400 mt-1">Vuelve al panel SORTEOS y completa el campo "CIERRE" para que el sistema cierre las compras automáticamente.</div>
                 </div>
               `}
               <div class="text-sm text-neutral-300 mb-4 leading-relaxed">
@@ -2202,7 +2202,7 @@ function SorteoVRFAdmin({ sorteos, refreshSorteos, showToast }){
           ${sorteo.lifecycleStatus === 'frozen' && html`
             <div>
               <div class="text-sm text-neutral-300 mb-4 leading-relaxed">
-                <strong class="text-brand">Paso 2: Esperar y ejecutar</strong> — la lista quedó hasheada. Cuando llegue la fecha objetivo, buscá el primer bloque BTC posterior y ejecutá.
+                <strong class="text-brand">Paso 2: Esperar y ejecutar</strong> — la lista quedó hasheada. Cuando llegue la fecha objetivo, busca el primer bloque BTC posterior y ejecuta.
               </div>
               <div class="bg-black/40 border border-white/10 rounded-xl p-5 mb-4 space-y-3 text-xs font-mono">
                 <div><span class="text-neutral-500">Hash pre-commit:</span><br/><span class="text-brand break-all">${sorteo.preCommitHash}</span></div>
@@ -2213,10 +2213,10 @@ function SorteoVRFAdmin({ sorteos, refreshSorteos, showToast }){
               <div class="bg-black/40 border border-white/10 rounded-xl p-5 mb-4 text-xs">
                 <div class="text-neutral-500 mb-2">CÓMO ENCONTRAR EL BLOQUE BTC:</div>
                 <ol class="text-neutral-300 leading-relaxed list-decimal list-inside space-y-1">
-                  <li>Andá a <a href="https://mempool.space" target="_blank" class="text-brand hover:underline">mempool.space</a></li>
-                  <li>Buscá el primer bloque cuyo "Block time" sea posterior a <strong class="text-brand">${new Date(sorteo.seedTargetAt).toISOString()}</strong></li>
-                  <li>Copiá su número de bloque (height)</li>
-                  <li>Pegalo abajo y click EJECUTAR</li>
+                  <li>Ve a <a href="https://mempool.space" target="_blank" class="text-brand hover:underline">mempool.space</a></li>
+                  <li>Busca el primer bloque cuyo "Block time" sea posterior a <strong class="text-brand">${new Date(sorteo.seedTargetAt).toISOString()}</strong></li>
+                  <li>Copia su número de bloque (height)</li>
+                  <li>Pégalo abajo y haz click en EJECUTAR</li>
                 </ol>
               </div>
               <label class="text-xs text-neutral-500 tracking-widest block mb-2">BLOCK HEIGHT (BITCOIN)</label>
@@ -2422,7 +2422,7 @@ function Admin({ open, close, sorteos, stickersList,
     setAuthBusy(true); setAuthMsg('');
     try {
       await dbAdminSignUp(email.trim(), pw);
-      setAuthMsg('Cuenta creada. Pedile al super admin que te autorice (te tiene que agregar a la tabla admins). Después podés hacer login.');
+      setAuthMsg('Cuenta creada. Pídele al super admin que te autorice (te tiene que agregar a la tabla admins). Después puedes hacer login.');
       setAuthMode('signin'); setPw('');
     }
     catch(e){ setAuthMsg(e.message || 'Error al crear cuenta'); }
@@ -2609,7 +2609,7 @@ function Admin({ open, close, sorteos, stickersList,
                                   <div class="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-[10px] tracking-widest text-brand">📷 SUBIR</div>
                                   <input type="file" accept="image/*" class="hidden" onChange=${async (e)=>{
                                     const f = e.target.files?.[0]; if (!f) return;
-                                    if (f.size > 26214400) { showToast('Imagen mayor a 25MB. Comprimila externamente y reintentá.', 'err'); e.target.value=''; return; }
+                                    if (f.size > 26214400) { showToast('Imagen mayor a 25MB. Comprímela externamente y reintenta.', 'err'); e.target.value=''; return; }
                                     try {
                                       showToast(`Subiendo ${(f.size/1024/1024).toFixed(1)}MB sin comprimir...`);
                                       // Sube el archivo ORIGINAL sin tocar para preservar calidad (se manda por email al cliente)
@@ -3036,8 +3036,8 @@ function App(){
             ` : html`
               <div class="w-20 h-20 border-2 border-neutral-500 rounded-full flex items-center justify-center mx-auto text-4xl text-neutral-500">✕</div>
               <div class="display text-3xl mt-6">PAGO CANCELADO</div>
-              <p class="text-neutral-400 mt-3 text-sm">No procesamos ningún cobro. Tu carrito sigue intacto si querés reintentarlo.</p>
-              <p class="text-neutral-500 mt-2 text-xs">Si tu tarjeta fue rechazada, probá con otra o revisá el límite. Para ayuda escribinos a <a href="mailto:contacto@grupomotor.cl" class="text-brand hover:underline">contacto@grupomotor.cl</a>.</p>
+              <p class="text-neutral-400 mt-3 text-sm">No procesamos ningún cobro. Tu carrito sigue intacto si quieres reintentarlo.</p>
+              <p class="text-neutral-500 mt-2 text-xs">Si tu tarjeta fue rechazada, prueba con otra o revisa el límite. Para ayuda escríbenos a <a href="mailto:contacto@grupomotor.cl" class="text-brand hover:underline">contacto@grupomotor.cl</a>.</p>
               <div class="flex gap-3 justify-center mt-8 flex-wrap">
                 <button onClick=${()=>{setCheckoutResult(null); goto('stickers');}} class="px-6 py-3 bg-brand text-black display tracking-widest rounded-full hover-glow">REINTENTAR →</button>
                 <button onClick=${()=>setCheckoutResult(null)} class="px-6 py-3 border border-white/20 hover:border-brand display tracking-widest rounded-full">VOLVER AL SITIO</button>
