@@ -1139,7 +1139,8 @@ function CartDrawer({ open, close, cart, toggle, sub, stickersList, activeSorteo
     try {
       const payload = {
         sticker_ids: items.map(it => it.id),
-        customer: { name: form.name.trim(), email: form.email.trim().toLowerCase(), rut: form.rut.trim(), phone: form.phone.trim()||null }
+        customer: { name: form.name.trim(), email: form.email.trim().toLowerCase(), rut: form.rut.trim(), phone: form.phone.trim()||null },
+        return_url: window.location.origin
       };
       const res = await fetch(`${SUPABASE_URL}/functions/v1/create-checkout`, {
         method:'POST',
