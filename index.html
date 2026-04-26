@@ -147,7 +147,22 @@ const dbToSorteo = (s) => ({
   heroCards: Array.isArray(s.hero_cards) ? s.hero_cards : [],
   prizes:    Array.isArray(s.prizes)     ? s.prizes : [],
   bases:     Array.isArray(s.bases)      ? s.bases : [],
-  packsPricing: s.packs_pricing && s.packs_pricing.packs ? s.packs_pricing : DEFAULT_PACKS_PRICING
+  packsPricing: s.packs_pricing && s.packs_pricing.packs ? s.packs_pricing : DEFAULT_PACKS_PRICING,
+  // Campos VRF
+  lifecycleStatus: s.lifecycle_status || 'open',
+  preCommitHash: s.pre_commit_hash || null,
+  preCommitAt: s.pre_commit_at || null,
+  preCommitCount: s.pre_commit_count || null,
+  seedSource: s.seed_source || null,
+  seedTargetAt: s.seed_target_at || null,
+  seedValue: s.seed_value || null,
+  seedMetadata: s.seed_metadata || null,
+  seedAt: s.seed_at || null,
+  winnerIndex: s.winner_index ?? null,
+  winnerNumero: s.winner_numero ?? null,
+  winnerCompraId: s.winner_compra_id || null,
+  winnerParticipanteId: s.winner_participante_id || null,
+  completedAt: s.completed_at || null,
 });
 const sorteoToDb = (s) => ({
   title: s.title,
@@ -320,6 +335,57 @@ async function dbFetchComprasAdmin(){
   const { data, error } = await sb.from('v_compras_admin').select('*').order('created_at', { ascending: false });
   if (error) throw error;
   return data || [];
+}
+
+// ===== Sorteo VRF (Verifiable Random Function) =====
+async function dbFreezeSorteo(sorteoId, seedTargetAtIso, seedSource = 'bitcoin'){
+  const { data: sess } = await sb.auth.getSession();
+  const token = sess?.session?.access_token;
+  if (!token) throw new Error('No hay sesión activa');
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/freeze-sorteo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ sorteo_id: sorteoId, seed_target_at: seedTargetAtIso, seed_source: seedSource })
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || 'Error al freezear');
+  return data;
+}
+async function dbExecuteSorteo(sorteoId, blockHeight){
+  const { data: sess } = await sb.auth.getSession();
+  const token = sess?.session?.access_token;
+  if (!token) throw new Error('No hay sesión activa');
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/execute-sorteo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify({ sorteo_id: sorteoId, block_height: blockHeight })
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || 'Error al ejecutar sorteo');
+  return data;
+}
+async function dbFetchResultadoPublico(sorteoId){
+  const { data, error } = await sb.from('v_sorteo_resultado').select('*').eq('sorteo_id', sorteoId).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+async function dbFetchNumerosPublicos(sorteoId){
+  const { data, error } = await sb.rpc('get_sorteo_numeros_publicos', { p_sorteo_id: sorteoId });
+  if (error) throw error;
+  return (data || []).map(r => r.numero);
+}
+
+// Re-cálculo del HMAC en cliente para verificación independiente
+async function verifyVRF(seedHex, hashPreCommit, count){
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', enc.encode(seedHex), { name:'HMAC', hash:'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(hashPreCommit));
+  const hex = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2,'0')).join('');
+  // Tomar primeros 16 chars hex (64 bits) y mod count
+  const first16 = hex.slice(0,16);
+  const big = BigInt('0x' + first16);
+  const idx = Number(big % BigInt(count));
+  return { hmac_hex: hex, winner_index: idx };
 }
 
 // ===== Calculo de precio por packs (programacion dinamica) =====
@@ -1247,6 +1313,249 @@ function CartDrawer({ open, close, cart, toggle, sub, stickersList, activeSorteo
   `;
 }
 
+/* ============== SORTEO VRF — Admin UI ============== */
+function SorteoVRFAdmin({ sorteos, refreshSorteos, showToast }){
+  const [selectedId, setSelectedId] = useState(null);
+  const [seedTargetAt, setSeedTargetAt] = useState(''); // datetime-local
+  const [blockHeight, setBlockHeight] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const sorteo = sorteos.find(s => s.id === selectedId) || null;
+
+  async function handleFreeze(){
+    if (!sorteo) return;
+    if (!seedTargetAt) return showToast('Definí la fecha/hora del seed', 'err');
+    if (!confirm(`¿Freezear el sorteo "${sorteo.title}"? Esta acción es IRREVERSIBLE: la lista de números queda hasheada y publicada. No se aceptarán más compras después de este momento.`)) return;
+    setBusy(true);
+    try {
+      const iso = new Date(seedTargetAt).toISOString();
+      const res = await dbFreezeSorteo(sorteo.id, iso);
+      showToast(`✓ Sorteo freezado. Hash: ${res.hash.slice(0,16)}... (${res.count} números)`);
+      await refreshSorteos();
+    } catch(e){ showToast('Error: '+e.message, 'err'); }
+    setBusy(false);
+  }
+  async function handleExecute(){
+    if (!sorteo) return;
+    if (!blockHeight) return showToast('Ingresá el número de bloque BTC', 'err');
+    if (!confirm(`¿Ejecutar sorteo "${sorteo.title}" con bloque BTC #${blockHeight}? Esta acción es IRREVERSIBLE y selecciona al ganador.`)) return;
+    setBusy(true);
+    try {
+      const res = await dbExecuteSorteo(sorteo.id, parseInt(blockHeight));
+      showToast(`✓ Ganador: número ${String(res.winner_numero).padStart(5,'0')}`);
+      await refreshSorteos();
+    } catch(e){ showToast('Error: '+e.message, 'err'); }
+    setBusy(false);
+  }
+
+  return html`
+    <div>
+      <div class="mb-6">
+        <div class="display text-3xl">EJECUTAR SORTEO</div>
+        <div class="text-[10px] text-neutral-500 tracking-widest mt-1">VRF · BITCOIN BLOCK HASH · VERIFIABLE</div>
+      </div>
+
+      <div class="border border-white/10 rounded-2xl bg-black/40 p-5 mb-6">
+        <div class="text-xs tracking-widest text-brand mb-3">SELECCIONAR SORTEO</div>
+        <select value=${selectedId||''} onChange=${e=>{setSelectedId(+e.target.value || null); setSeedTargetAt(''); setBlockHeight('');}}
+          class="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 outline-none focus:border-brand">
+          <option value="">— elegí un sorteo —</option>
+          ${sorteos.map(s => html`<option key=${s.id} value=${s.id}>${s.title} · ${s.lifecycleStatus.toUpperCase()}</option>`)}
+        </select>
+      </div>
+
+      ${sorteo && html`
+        <div class="border border-white/10 rounded-2xl bg-white/5 p-6">
+          <!-- Indicador de fase -->
+          <div class="flex gap-2 mb-6 text-xs tracking-widest">
+            ${['open','frozen','completed'].map(st => html`
+              <div key=${st} class=${"flex-1 text-center py-2 rounded-lg "+(sorteo.lifecycleStatus===st?'bg-brand text-black':sorteo.lifecycleStatus==='completed' || (sorteo.lifecycleStatus==='frozen' && st==='open')?'bg-green-900/40 text-green-400':'bg-white/5 text-neutral-500')}>
+                ${st === 'open' ? '1 · ABIERTO' : st === 'frozen' ? '2 · FREEZADO' : '3 · COMPLETADO'}
+              </div>
+            `)}
+          </div>
+
+          ${sorteo.lifecycleStatus === 'open' && html`
+            <div>
+              <div class="text-sm text-neutral-300 mb-4 leading-relaxed">
+                <strong class="text-brand">Paso 1: Freeze</strong> — esto cierra las compras y genera un hash SHA-256 inmutable de la lista actual de números. Hacelo cuando termina el período de venta.
+              </div>
+              <div class="bg-black/40 border border-white/10 rounded-xl p-5 mb-4 text-xs">
+                <div class="text-neutral-500 mb-2">¿CUÁNDO TOMAR EL SEED DE BITCOIN?</div>
+                <div class="text-neutral-300 leading-relaxed">
+                  Definí una fecha/hora futura. El sistema usará el hash del primer bloque de Bitcoin minado <strong>después</strong> de ese momento. Cualquiera puede verificar yendo a <a href="https://mempool.space" target="_blank" class="text-brand hover:underline">mempool.space</a>.
+                </div>
+              </div>
+              <label class="text-xs text-neutral-500 tracking-widest block mb-2">FECHA/HORA OBJETIVO DEL SEED (CHILE)</label>
+              <input type="datetime-local" value=${seedTargetAt} onChange=${e=>setSeedTargetAt(e.target.value)}
+                class="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 outline-none focus:border-brand mb-5"/>
+              <button onClick=${handleFreeze} disabled=${busy || !seedTargetAt}
+                class="px-8 py-4 bg-red-600 hover:bg-red-500 text-white display tracking-widest rounded-full disabled:opacity-40">
+                ${busy?'...':'🔒 FREEZEAR LISTA (IRREVERSIBLE)'}
+              </button>
+            </div>
+          `}
+
+          ${sorteo.lifecycleStatus === 'frozen' && html`
+            <div>
+              <div class="text-sm text-neutral-300 mb-4 leading-relaxed">
+                <strong class="text-brand">Paso 2: Esperar y ejecutar</strong> — la lista quedó hasheada. Cuando llegue la fecha objetivo, buscá el primer bloque BTC posterior y ejecutá.
+              </div>
+              <div class="bg-black/40 border border-white/10 rounded-xl p-5 mb-4 space-y-3 text-xs font-mono">
+                <div><span class="text-neutral-500">Hash pre-commit:</span><br/><span class="text-brand break-all">${sorteo.preCommitHash}</span></div>
+                <div><span class="text-neutral-500">Números emitidos:</span> <span class="text-white">${sorteo.preCommitCount}</span></div>
+                <div><span class="text-neutral-500">Freezeado:</span> <span class="text-white">${new Date(sorteo.preCommitAt).toLocaleString('es-CL')}</span></div>
+                <div><span class="text-neutral-500">Seed objetivo:</span> <span class="text-white">${new Date(sorteo.seedTargetAt).toLocaleString('es-CL')} CLT</span></div>
+              </div>
+              <div class="bg-black/40 border border-white/10 rounded-xl p-5 mb-4 text-xs">
+                <div class="text-neutral-500 mb-2">CÓMO ENCONTRAR EL BLOQUE BTC:</div>
+                <ol class="text-neutral-300 leading-relaxed list-decimal list-inside space-y-1">
+                  <li>Andá a <a href="https://mempool.space" target="_blank" class="text-brand hover:underline">mempool.space</a></li>
+                  <li>Buscá el primer bloque cuyo "Block time" sea posterior a <strong class="text-brand">${new Date(sorteo.seedTargetAt).toISOString()}</strong></li>
+                  <li>Copiá su número de bloque (height)</li>
+                  <li>Pegalo abajo y click EJECUTAR</li>
+                </ol>
+              </div>
+              <label class="text-xs text-neutral-500 tracking-widest block mb-2">BLOCK HEIGHT (BITCOIN)</label>
+              <input type="number" value=${blockHeight} onChange=${e=>setBlockHeight(e.target.value)} placeholder="ej: 871234"
+                class="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 outline-none focus:border-brand mb-5"/>
+              <button onClick=${handleExecute} disabled=${busy || !blockHeight}
+                class="px-8 py-4 bg-brand text-black display tracking-widest rounded-full disabled:opacity-40 hover-glow">
+                ${busy?'...':'🎲 EJECUTAR SORTEO'}
+              </button>
+            </div>
+          `}
+
+          ${sorteo.lifecycleStatus === 'completed' && html`
+            <div class="text-center">
+              <div class="text-6xl mb-4">🏆</div>
+              <div class="display text-2xl text-brand mb-2">SORTEO COMPLETADO</div>
+              <div class="text-sm text-neutral-400 mb-6">${new Date(sorteo.completedAt).toLocaleString('es-CL')}</div>
+              <div class="bg-black/40 border-2 border-brand rounded-2xl p-8 mb-6">
+                <div class="text-xs text-neutral-500 tracking-widest mb-3">// NÚMERO GANADOR</div>
+                <div class="display text-7xl text-brand font-mono">${String(sorteo.winnerNumero).padStart(5,'0')}</div>
+              </div>
+              <a href=${`?resultado=${sorteo.id}`} target="_blank"
+                class="inline-block px-8 py-3 border border-brand text-brand hover:bg-brand hover:text-black display tracking-widest rounded-full">
+                VER ACTA PÚBLICA →
+              </a>
+            </div>
+          `}
+        </div>
+      `}
+    </div>
+  `;
+}
+
+/* ============== Resultado Público (acta auditable) ============== */
+function ResultadoPublico({ sorteoId, onClose }){
+  const [data, setData] = useState(null);
+  const [numeros, setNumeros] = useState(null);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(()=>{
+    (async ()=>{
+      try {
+        const d = await dbFetchResultadoPublico(sorteoId);
+        setData(d);
+      } catch(e){ setError(e.message); }
+    })();
+  }, [sorteoId]);
+
+  async function handleVerify(){
+    if (!data) return;
+    setVerifying(true); setVerifyResult(null);
+    try {
+      // 1) Bajar la lista de números y recalcular el hash
+      const nums = await dbFetchNumerosPublicos(sorteoId);
+      setNumeros(nums);
+      const concat = nums.join(',');
+      const buf = new TextEncoder().encode(concat);
+      const hashBuf = await crypto.subtle.digest('SHA-256', buf);
+      const recalcHash = Array.from(new Uint8Array(hashBuf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+      const hashOk = recalcHash === data.pre_commit_hash;
+      // 2) Recalcular el HMAC con el seed
+      const vrf = await verifyVRF(data.seed_value, data.pre_commit_hash, nums.length);
+      const indexOk = vrf.winner_index === data.winner_index;
+      const numeroOk = nums[vrf.winner_index] === data.winner_numero;
+      setVerifyResult({ hashOk, indexOk, numeroOk, recalcHash, recalcHmac: vrf.hmac_hex, recalcIndex: vrf.winner_index });
+    } catch(e){ setVerifyResult({ error: e.message }); }
+    setVerifying(false);
+  }
+
+  if (error) return html`<div class="min-h-screen flex items-center justify-center text-center p-6"><div><div class="display text-4xl text-red-400 mb-3">Error</div><div class="text-neutral-400">${error}</div><button onClick=${onClose} class="mt-6 px-6 py-3 border border-white/20 rounded-full">Volver</button></div></div>`;
+  if (!data) return html`<div class="min-h-screen flex items-center justify-center"><div class="text-neutral-500">Cargando...</div></div>`;
+
+  return html`
+    <section class="min-h-screen bg-neutral-950 text-white px-6 py-16 print:bg-white print:text-black">
+      <div class="max-w-4xl mx-auto">
+        <div class="flex items-center justify-between mb-10 print:hidden">
+          <button onClick=${onClose} class="text-sm tracking-widest text-neutral-400 hover:text-brand">← VOLVER AL SITIO</button>
+          <button onClick=${()=>window.print()} class="px-5 py-2 border border-white/20 hover:border-brand rounded-full text-sm tracking-widest">🖨️ IMPRIMIR / PDF</button>
+        </div>
+
+        <!-- Header -->
+        <div class="text-center mb-10 border-b border-white/10 pb-8 print:border-black/20">
+          <div class="inline-block bg-gradient-to-br from-brand to-yellow-400 text-black font-black px-6 py-2 rounded-full text-xs tracking-[0.3em] mb-4">CLAUDIO EN PISTA</div>
+          <div class="text-xs tracking-[0.4em] text-brand">// ACTA PÚBLICA DE SORTEO</div>
+          <h1 class="display text-5xl md:text-6xl mt-4 mb-2">${data.title}</h1>
+          <div class="text-neutral-400 text-sm">Sorteo Nº ${data.sorteo_id}</div>
+        </div>
+
+        ${data.lifecycle_status !== 'completed' ? html`
+          <div class="text-center py-20">
+            <div class="display text-3xl text-neutral-500 mb-4">SORTEO ${data.lifecycle_status === 'open' ? 'EN CURSO' : 'PENDIENTE DE EJECUCIÓN'}</div>
+            <div class="text-neutral-400 text-sm">Estado: <span class="text-brand">${data.lifecycle_status.toUpperCase()}</span></div>
+            ${data.pre_commit_hash && html`<div class="mt-8 max-w-xl mx-auto bg-black/40 border border-white/10 rounded-xl p-5 text-left text-xs"><div class="text-neutral-500 mb-1">Pre-commit hash (lista hasheada):</div><div class="font-mono break-all text-brand">${data.pre_commit_hash}</div><div class="text-neutral-500 mt-3">Números emitidos: <span class="text-white">${data.pre_commit_count}</span></div></div>`}
+          </div>
+        ` : html`
+          <!-- Ganador -->
+          <div class="bg-gradient-to-br from-brand/20 via-black/40 to-black/40 border-2 border-brand rounded-3xl p-10 text-center mb-12 print:bg-orange-50 print:border-orange-500">
+            <div class="text-6xl mb-2">🏆</div>
+            <div class="text-xs tracking-[0.4em] text-brand mb-4">// GANADOR</div>
+            <div class="display text-7xl md:text-8xl text-brand font-mono mb-4 print:text-orange-600">${String(data.winner_numero).padStart(5,'0')}</div>
+            <div class="text-xl text-neutral-300 print:text-black">${data.winner_display_name || 'Anónimo'}</div>
+            <div class="text-sm text-neutral-500 mt-1 font-mono print:text-gray-700">${data.winner_display_email || ''}</div>
+            <div class="text-xs text-neutral-500 mt-6 tracking-widest">${new Date(data.completed_at).toLocaleString('es-CL', { timeZone: 'America/Santiago', dateStyle:'long', timeStyle:'short' })} CLT</div>
+          </div>
+
+          <!-- Procedimiento -->
+          <div class="bg-black/40 border border-white/10 rounded-2xl p-8 mb-8 print:bg-gray-50 print:border-gray-300">
+            <h2 class="display text-2xl mb-4 text-brand print:text-orange-600">// PROCEDIMIENTO VRF (Verifiable Random Function)</h2>
+            <ol class="space-y-4 text-sm leading-relaxed text-neutral-300 print:text-black">
+              <li><strong class="text-white print:text-black">1. Pre-commit (freeze):</strong> el ${new Date(data.pre_commit_at).toLocaleString('es-CL')} se hasheó la lista completa de <strong>${data.pre_commit_count}</strong> números emitidos en orden ascendente, separados por coma. SHA-256 result:<br/><code class="font-mono text-xs text-brand break-all block mt-2">${data.pre_commit_hash}</code></li>
+              <li><strong class="text-white print:text-black">2. Seed público e impredecible:</strong> hash del bloque de Bitcoin <strong>#${data.seed_metadata?.block_height}</strong> minado el ${data.seed_metadata?.block_time ? new Date(data.seed_metadata.block_time*1000).toLocaleString('es-CL') : ''} (verificable en <a href=${`https://mempool.space/block/${data.seed_value}`} target="_blank" class="text-brand underline">mempool.space</a>):<br/><code class="font-mono text-xs text-brand break-all block mt-2">${data.seed_value}</code></li>
+              <li><strong class="text-white print:text-black">3. Cálculo determinístico del ganador:</strong><br/><code class="font-mono text-xs block mt-2 text-neutral-300 print:text-black">índice = HMAC-SHA256(seed, hash_pre_commit) mod ${data.pre_commit_count}</code><br/>Resultado: <strong class="text-brand">índice = ${data.winner_index}</strong> → número en posición ${data.winner_index} de la lista ordenada ascendentemente = <strong class="text-brand font-mono">${String(data.winner_numero).padStart(5,'0')}</strong></li>
+            </ol>
+          </div>
+
+          <!-- Verificación independiente -->
+          <div class="bg-black/40 border border-white/10 rounded-2xl p-8 mb-8 print:hidden">
+            <h2 class="display text-2xl mb-4 text-brand">// VERIFICACIÓN INDEPENDIENTE</h2>
+            <p class="text-sm text-neutral-400 mb-5 leading-relaxed">Cualquier persona puede verificar este resultado clickeando el botón. El navegador descarga la lista de números desde la API pública, recalcula los hashes y el HMAC, y compara con los valores oficiales. <strong class="text-brand">Si todo coincide, el sorteo es matemáticamente válido.</strong></p>
+            <button onClick=${handleVerify} disabled=${verifying} class="px-6 py-3 bg-brand text-black display tracking-widest rounded-full hover-glow disabled:opacity-40">${verifying?'Verificando...':'🔍 VERIFICAR AHORA'}</button>
+            ${verifyResult && (verifyResult.error ? html`<div class="mt-4 text-red-400 text-sm">Error: ${verifyResult.error}</div>` : html`
+              <div class="mt-5 space-y-2 text-sm font-mono">
+                <div class=${verifyResult.hashOk?'text-green-400':'text-red-400'}>${verifyResult.hashOk?'✓':'✗'} Hash pre-commit recalculado coincide</div>
+                <div class=${verifyResult.indexOk?'text-green-400':'text-red-400'}>${verifyResult.indexOk?'✓':'✗'} Índice del ganador (${verifyResult.recalcIndex}) coincide</div>
+                <div class=${verifyResult.numeroOk?'text-green-400':'text-red-400'}>${verifyResult.numeroOk?'✓':'✗'} Número ganador coincide</div>
+                ${verifyResult.hashOk && verifyResult.indexOk && verifyResult.numeroOk && html`<div class="mt-3 px-4 py-2 bg-green-900/40 text-green-300 rounded-lg display tracking-widest text-center">✓ SORTEO MATEMÁTICAMENTE VÁLIDO</div>`}
+              </div>
+            `)}
+          </div>
+        `}
+
+        <!-- Footer -->
+        <div class="mt-12 pt-8 border-t border-white/10 text-center text-xs text-neutral-500 print:text-black print:border-black/20">
+          © 2026 Claudio en Pista · @claudioenpista · Acta auditable generada por sistema VRF propio
+        </div>
+      </div>
+    </section>
+  `;
+}
+
 /* ============== ADMIN PANEL ============== */
 function Admin({ open, close, sorteos, stickersList,
                  patchSorteoLocal, saveSorteoAt, addSorteo, deleteSorteoById,
@@ -1618,16 +1927,7 @@ function Admin({ open, close, sorteos, stickersList,
                       </div>
                     </div>
                   `}
-                  ${section==='ruleta' && html`
-                    <div class="text-center py-10">
-                      <div class="display text-3xl mb-6">EJECUTAR SORTEO</div>
-                      <div class="text-neutral-400 mb-8">Selecciona el sorteo y ejecuta la ruleta en vivo. La selección queda registrada con timestamp.</div>
-                      <select class="bg-black/40 border border-white/10 rounded-full px-5 py-3 outline-none focus:border-brand mb-6">
-                        ${sorteos.filter(s=>s.active).map(s=>html`<option key=${s.id}>${s.title}</option>`)}
-                      </select>
-                      <div><button class="px-12 py-5 bg-brand text-black display tracking-widest text-xl rounded-full hover-glow">🎲 EJECUTAR AHORA</button></div>
-                    </div>
-                  `}
+                  ${section==='ruleta' && html`<${SorteoVRFAdmin} sorteos=${sorteos} refreshSorteos=${refreshSorteos} showToast=${showToast}/>`}
                 </main>
               </div>
             `}
@@ -1705,6 +2005,11 @@ function App(){
   const [adminOpen,setAdminOpen] = useState(false);
   const [checkoutResult,setCheckoutResult] = useState(null); // 'ok' | 'cancel' | null
   const [checkoutCompraId,setCheckoutCompraId] = useState(null);
+  const [resultadoId,setResultadoId] = useState(()=>{
+    const p = new URLSearchParams(window.location.search);
+    const id = p.get('resultado');
+    return id ? parseInt(id) : null;
+  });
   const [toasts,setToasts] = useState([]); // [{id, msg, type}]
   const [busyKeys,setBusyKeys] = useState(new Set());
 
@@ -1839,6 +2144,15 @@ function App(){
 
   const activeSorteo = sorteos.find(s=>s.active && s.status!=='bloqueado');
   const heroCards = activeSorteo && activeSorteo.heroCards;
+
+  // Si hay ?resultado=<id> en la URL, mostrar la página pública del sorteo (full-screen, sin nav)
+  if (resultadoId) {
+    return html`<${ResultadoPublico} sorteoId=${resultadoId} onClose=${()=>{
+      const url = new URL(window.location.href); url.searchParams.delete('resultado');
+      window.history.replaceState({}, '', url.toString());
+      setResultadoId(null);
+    }}/>`;
+  }
 
   return html`
     <${React.Fragment}>
