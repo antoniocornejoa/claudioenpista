@@ -291,6 +291,17 @@ async function dbAdminSignIn(email, password){
   const { data: adm, error: e2 } = await sb.from('admins').select('user_id').eq('user_id', data.user.id).maybeSingle();
   if (e2) throw e2;
   if (!adm){ await sb.auth.signOut(); throw new Error('Cuenta no autorizada como admin. Contactá al super admin.'); }
+  // Loggear este signin (audit trail + alerta por email si es IP nueva)
+  // Best-effort: si falla, no bloqueamos el login
+  fetch(`${SUPABASE_URL}/functions/v1/log-admin-login`, {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${data.session.access_token}`,
+    },
+    body: JSON.stringify({})
+  }).catch(e => console.warn('log-admin-login failed', e));
   return data.user;
 }
 async function dbAdminSignUp(email, password){
