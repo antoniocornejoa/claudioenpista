@@ -3,7 +3,33 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Claudio en Pista — Premium</title>
+<title>Claudio en Pista — Sorteo F1 Brasil 2026 · Stickers Oficiales</title>
+<meta name="description" content="Participá del sorteo oficial del viaje a la F1 Brasil 2026 (Interlagos). Comprá stickers digitales y obtené tu número aleatorio. Sorteo notariado y verificable matemáticamente." />
+<meta name="keywords" content="sorteo F1, claudio en pista, GP Brasil, Interlagos 2026, sorteo Chile, viaje Formula 1, stickers F1, sorteo notariado" />
+<meta name="author" content="Claudio en Pista" />
+<meta name="theme-color" content="#ff6a00" />
+<link rel="canonical" href="https://claudioenpista.grupomotor.cl/" />
+<!-- Open Graph -->
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Claudio en Pista" />
+<meta property="og:title" content="Claudio en Pista — Sorteo F1 Brasil 2026" />
+<meta property="og:description" content="Ganá un viaje a la F1 Brasil 2026 (Interlagos). Comprá stickers digitales oficiales y participá. Sorteo notariado y matemáticamente verificable." />
+<meta property="og:url" content="https://claudioenpista.grupomotor.cl/" />
+<meta property="og:locale" content="es_CL" />
+<!-- Twitter -->
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Claudio en Pista — Sorteo F1 Brasil 2026" />
+<meta name="twitter:description" content="Ganá un viaje a la F1 Brasil 2026. Stickers digitales oficiales + sorteo notariado." />
+<!-- Google Analytics 4 (placeholder — cambiar GA_MEASUREMENT_ID por el real) -->
+<script>
+  window.GA_ID = ''; // ej: 'G-XXXXXXXXXX' — dejá vacío para deshabilitar
+  if (window.GA_ID) {
+    var ga = document.createElement('script'); ga.async = true; ga.src = 'https://www.googletagmanager.com/gtag/js?id=' + window.GA_ID;
+    document.head.appendChild(ga);
+    window.dataLayer = window.dataLayer || []; function gtag(){dataLayer.push(arguments);} window.gtag = gtag;
+    gtag('js', new Date()); gtag('config', window.GA_ID);
+  }
+</script>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
   tailwind.config = {
@@ -374,6 +400,32 @@ async function dbFetchNumerosPublicos(sorteoId){
   if (error) throw error;
   return (data || []).map(r => r.numero);
 }
+async function dbFetchMyOrders(email, rut){
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/my-orders`, {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` },
+    body: JSON.stringify({ email, rut })
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || 'Error');
+  return data;
+}
+async function dbFetchFAQs(){
+  const { data, error } = await sb.from('faqs').select('*').eq('active', true).order('position', { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+async function dbFetchLegalPage(slug){
+  const { data, error } = await sb.from('legal_pages').select('*').eq('slug', slug).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+// Cantidad de números emitidos en un sorteo (para barra de progreso)
+async function dbCountNumerosEmitidos(sorteoId){
+  const { count, error } = await sb.from('numeros_sorteo').select('*', { count: 'exact', head: true }).eq('sorteo_id', sorteoId);
+  if (error) return 0;
+  return count || 0;
+}
 
 // Re-cálculo del HMAC en cliente para verificación independiente
 async function verifyVRF(seedHex, hashPreCommit, count){
@@ -730,7 +782,35 @@ function Nav({ tab, setTab, cartCount, openCart, openAdmin, goToContact }){
   `;
 }
 
-function Hero({ goto }){
+function Countdown({ targetDate, label='HASTA EL CIERRE' }){
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const i = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(i); }, []);
+  const diff = new Date(targetDate).getTime() - now;
+  if (diff <= 0) return html`<div class="inline-block px-4 py-2 bg-red-900/40 text-red-300 display tracking-widest text-sm rounded-full border border-red-500/40">SORTEO CERRADO</div>`;
+  const d = Math.floor(diff / 86400000);
+  const h = Math.floor((diff / 3600000) % 24);
+  const m = Math.floor((diff / 60000) % 60);
+  const s = Math.floor((diff / 1000) % 60);
+  return html`
+    <div class="inline-block">
+      <div class="text-[10px] tracking-[0.3em] text-neutral-500 mb-2">${label}</div>
+      <div class="flex gap-2 sm:gap-3 items-center">
+        ${[[d,'DÍAS'],[h,'HRS'],[m,'MIN'],[s,'SEG']].map((x,i) => html`
+          <${React.Fragment} key=${i}>
+            ${i>0 && html`<div class="text-brand opacity-40 text-xl">:</div>`}
+            <div class="text-center bg-black/40 border border-white/10 rounded-xl px-3 py-2 min-w-[60px]">
+              <div class="display text-2xl sm:text-3xl text-brand">${i===0?d:String(x[0]).padStart(2,'0')}</div>
+              <div class="text-[8px] sm:text-[9px] tracking-widest text-neutral-500">${x[1]}</div>
+            </div>
+          </${React.Fragment}>
+        `)}
+      </div>
+    </div>
+  `;
+}
+
+function Hero({ goto, activeSorteo }){
+  const endDate = activeSorteo?.end ? new Date(activeSorteo.end + 'T23:59:59-03:00') : null;
   return html`
     <section class="relative min-h-screen flex items-center px-6 pt-32 pb-20">
       <div class="absolute inset-0 grain pointer-events-none"></div>
@@ -761,6 +841,11 @@ function Hero({ goto }){
               VER PREMIO
             </button>
           </${motion.div}>
+          ${endDate && html`
+            <${motion.div} initial=${{opacity:0,y:10}} animate=${{opacity:1,y:0}} transition=${{duration:.8,delay:1.2}} class="mt-10">
+              <${Countdown} targetDate=${endDate.toISOString()}/>
+            </${motion.div}>
+          `}
         </div>
         <div class="md:col-span-5">
           <div class="grid grid-cols-2 gap-4">
@@ -1134,6 +1219,184 @@ function validateRUT(rut){
   return dv === rutCalculateDV(body);
 }
 
+function MisCompras({ onClose }){
+  const [form,setForm] = useState({ email:'', rut:'' });
+  const [busy,setBusy] = useState(false);
+  const [errMsg,setErrMsg] = useState('');
+  const [data,setData] = useState(null);
+
+  async function submit(){
+    setErrMsg('');
+    if (!/\S+@\S+\.\S+/.test(form.email)) return setErrMsg('Email inválido');
+    if (!validateRUT(form.rut)) return setErrMsg('RUT inválido — revisá el dígito verificador');
+    setBusy(true);
+    try {
+      const res = await dbFetchMyOrders(form.email.trim().toLowerCase(), form.rut.trim());
+      setData(res);
+    } catch(e){ setErrMsg(e.message || 'Error'); }
+    setBusy(false);
+  }
+
+  return html`
+    <section class="px-6 py-32 min-h-screen relative">
+      <div class="absolute inset-0 grain pointer-events-none"></div>
+      <div class="max-w-4xl mx-auto relative">
+        <div class="mb-10">
+          <button onClick=${onClose} class="text-sm tracking-widest text-neutral-400 hover:text-brand uppercase">← VOLVER</button>
+        </div>
+
+        ${!data ? html`
+          <div class="text-center mb-10">
+            <div class="text-xs tracking-[0.4em] text-brand mb-3">// CONSULTA DE PARTICIPACIONES</div>
+            <h2 class="display text-6xl md:text-8xl leading-none mb-4">MIS COMPRAS</h2>
+            <p class="text-neutral-400 max-w-xl mx-auto">Ingresá el email y RUT que usaste al comprar para ver todas tus participaciones, números asignados y el estado de cada sorteo.</p>
+          </div>
+          <div class="max-w-md mx-auto border border-white/10 rounded-3xl bg-black/40 backdrop-blur p-8 neon-border space-y-4">
+            <input type="email" value=${form.email} onChange=${e=>setForm(f=>({...f,email:e.target.value}))} placeholder="Email"
+              class="w-full bg-black/40 border border-white/10 rounded-full px-5 py-3 outline-none focus:border-brand"/>
+            <input value=${form.rut} onChange=${e=>setForm(f=>({...f,rut:rutFormat(e.target.value)}))} placeholder="RUT (12.345.678-9)" maxlength="12"
+              class=${"w-full bg-black/40 border rounded-full px-5 py-3 outline-none focus:border-brand "+(form.rut && !validateRUT(form.rut)?'border-red-500':'border-white/10')}/>
+            ${errMsg && html`<div class="text-xs text-red-400 text-center">${errMsg}</div>`}
+            <button onClick=${submit} disabled=${busy}
+              class="w-full py-4 bg-brand text-black display tracking-widest text-lg rounded-full hover-glow disabled:opacity-50">
+              ${busy?'Buscando...':'CONSULTAR'}
+            </button>
+            <div class="text-[10px] text-center text-neutral-600 tracking-widest">REQUERIMOS EMAIL + RUT POR SEGURIDAD</div>
+          </div>
+        ` : html`
+          <div class="mb-8">
+            <div class="text-xs tracking-[0.4em] text-brand mb-2">// HOLA</div>
+            <h2 class="display text-5xl md:text-6xl">${data.participante.name}</h2>
+            <div class="text-neutral-400 text-sm">${data.participante.email}</div>
+          </div>
+          ${data.compras.length === 0 ? html`
+            <div class="text-center py-20 border border-white/10 rounded-3xl bg-white/5 text-neutral-500">No encontramos compras a tu nombre.</div>
+          ` : html`
+            <div class="space-y-6">
+              ${data.compras.map(c => html`
+                <div key=${c.compra_id} class="border ${c.is_winner?'border-brand':'border-white/10'} rounded-3xl bg-white/5 backdrop-blur p-6 ${c.is_winner?'neon-border':''}">
+                  <div class="flex items-start justify-between flex-wrap gap-4 mb-4">
+                    <div>
+                      <div class="text-[10px] tracking-widest text-neutral-500">COMPRA #${c.compra_id} · ${new Date(c.created_at).toLocaleDateString('es-CL')}</div>
+                      <div class="display text-2xl mt-1">${c.sorteo.title}</div>
+                    </div>
+                    <div class="text-right">
+                      ${c.is_winner ? html`<div class="display text-xl text-brand">🏆 GANADOR</div>`
+                        : c.status === 'paid' ? html`<div class="text-xs px-3 py-1 bg-green-900/40 text-green-400 rounded-full inline-block tracking-widest">PAID</div>`
+                        : c.status === 'pending' ? html`<div class="text-xs px-3 py-1 bg-yellow-900/40 text-yellow-400 rounded-full inline-block tracking-widest">PENDING</div>`
+                        : html`<div class="text-xs px-3 py-1 bg-red-900/40 text-red-400 rounded-full inline-block tracking-widest">FAILED</div>`}
+                      <div class="text-brand display text-xl mt-1">$${c.monto.toLocaleString('es-CL')}</div>
+                    </div>
+                  </div>
+                  ${c.numeros && c.numeros.length > 0 ? html`
+                    <div class="mb-4">
+                      <div class="text-[10px] tracking-widest text-brand mb-2">// MIS NÚMEROS (${c.numeros.length})</div>
+                      <div class="flex flex-wrap gap-2">
+                        ${c.numeros.map(n => html`<span key=${n} class=${"px-3 py-1 rounded-full font-mono text-sm "+(c.sorteo.winner_numero === n ? 'bg-brand text-black font-bold ring-2 ring-yellow-400' : 'bg-brand/20 text-brand')}>${String(n).padStart(5,'0')}</span>`)}
+                      </div>
+                    </div>
+                  ` : c.status === 'pending' ? html`<div class="text-xs text-yellow-400 mb-4">Pago pendiente. Si pagaste y no ves los números, esperá unos minutos o contactanos.</div>` : ''}
+                  ${c.items && c.items.length > 0 && html`
+                    <div>
+                      <div class="text-[10px] tracking-widest text-neutral-500 mb-2">// STICKERS</div>
+                      <div class="flex flex-wrap gap-2">
+                        ${c.items.map((it,i) => html`
+                          <div key=${i} class="flex items-center gap-2 bg-black/40 border border-white/10 rounded-full pl-1 pr-3 py-1">
+                            <div class="w-7 h-7 rounded-full bg-gradient-to-br from-brand/20 to-black overflow-hidden flex items-center justify-center text-sm">
+                              ${it.image_url ? html`<img src=${it.image_url} class="w-full h-full object-cover"/>` : it.emoji}
+                            </div>
+                            <span class="text-xs text-neutral-300">${it.name}</span>
+                          </div>
+                        `)}
+                      </div>
+                    </div>
+                  `}
+                  ${c.sorteo.lifecycle_status === 'completed' && html`
+                    <a href=${`?resultado=${c.sorteo.id}`} class="inline-block mt-4 text-sm text-brand hover:underline">Ver acta del sorteo →</a>
+                  `}
+                </div>
+              `)}
+            </div>
+          `}
+          <div class="mt-8 text-center">
+            <button onClick=${()=>{setData(null); setForm({email:'',rut:''});}} class="text-sm text-neutral-500 hover:text-brand tracking-widest">CONSULTAR OTRO EMAIL/RUT</button>
+          </div>
+        `}
+      </div>
+    </section>
+  `;
+}
+
+function FAQ({ inSection }){
+  const [faqs,setFaqs] = useState([]);
+  const [open,setOpen] = useState(null);
+  useEffect(()=>{ dbFetchFAQs().then(setFaqs).catch(()=>{}); }, []);
+  return html`
+    <section id="faq" class=${(inSection?'px-6 py-32':'px-6 py-20')+" relative"}>
+      <div class="max-w-4xl mx-auto relative">
+        ${!inSection && html`<div class="mb-10"><button onClick=${()=>history.back()} class="text-sm tracking-widest text-neutral-400 hover:text-brand uppercase">← VOLVER</button></div>`}
+        <div class="mb-10">
+          <div class="text-xs tracking-[0.4em] text-brand mb-3">// PREGUNTAS FRECUENTES</div>
+          <h2 class="display text-6xl md:text-8xl leading-none">FAQ</h2>
+        </div>
+        <div class="space-y-3">
+          ${faqs.length === 0 ? html`<div class="text-neutral-500">Cargando...</div>` : faqs.map(f => html`
+            <div key=${f.id} class="border border-white/10 rounded-2xl bg-white/5 backdrop-blur overflow-hidden">
+              <button onClick=${()=>setOpen(open===f.id?null:f.id)} class="w-full text-left px-6 py-5 flex items-center justify-between gap-4 hover:bg-white/5 transition">
+                <div class="display text-lg pr-4">${f.question}</div>
+                <div class=${"text-brand text-2xl transition "+(open===f.id?'rotate-45':'')}>+</div>
+              </button>
+              ${open===f.id && html`<div class="px-6 pb-5 text-neutral-300 leading-relaxed text-sm whitespace-pre-line">${f.answer}</div>`}
+            </div>
+          `)}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+// Renderiza markdown muy simple (## headers, ** bold **, párrafos)
+function renderSimpleMarkdown(md){
+  if (!md) return '';
+  const lines = md.split('\n');
+  const out = [];
+  let p = [];
+  const flush = () => { if (p.length) { out.push(`<p>${p.join(' ')}</p>`); p = []; } };
+  for (const ln of lines){
+    if (!ln.trim()) { flush(); continue; }
+    if (ln.startsWith('## ')) { flush(); out.push(`<h2>${ln.slice(3).trim()}</h2>`); continue; }
+    if (ln.startsWith('### ')) { flush(); out.push(`<h3>${ln.slice(4).trim()}</h3>`); continue; }
+    if (ln.startsWith('- ')) { flush(); out.push(`<li>${ln.slice(2)}</li>`); continue; }
+    p.push(ln);
+  }
+  flush();
+  return out.join('\n').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+}
+function LegalPage({ slug, onClose }){
+  const [page,setPage] = useState(null);
+  const [error,setError] = useState(null);
+  useEffect(()=>{ dbFetchLegalPage(slug).then(p => p ? setPage(p) : setError('Página no encontrada')).catch(e=>setError(e.message)); }, [slug]);
+  if (error) return html`<div class="min-h-screen flex items-center justify-center text-center"><div><div class="display text-3xl text-red-400">${error}</div><button onClick=${onClose} class="mt-6 px-6 py-3 border border-white/20 rounded-full">Volver</button></div></div>`;
+  if (!page) return html`<div class="min-h-screen flex items-center justify-center text-neutral-500">Cargando...</div>`;
+  const __html = renderSimpleMarkdown(page.content_md);
+  return html`
+    <section class="px-6 py-20 min-h-screen relative">
+      <div class="max-w-3xl mx-auto">
+        <div class="mb-10"><button onClick=${onClose} class="text-sm tracking-widest text-neutral-400 hover:text-brand uppercase">← VOLVER</button></div>
+        <h1 class="display text-5xl md:text-7xl mb-10 leading-none">${page.title}</h1>
+        <div class="legal-content text-neutral-300 leading-relaxed space-y-4" dangerouslySetInnerHTML=${{__html}}></div>
+      </div>
+      <style>
+        .legal-content h2 { font-family:'Bebas Neue',Impact,sans-serif; font-size:28px; color:#ff6a00; margin-top:32px; margin-bottom:12px; letter-spacing:1px; }
+        .legal-content h3 { font-size:18px; color:#fff; margin-top:18px; margin-bottom:8px; font-weight:600; }
+        .legal-content p { margin-bottom:12px; }
+        .legal-content li { margin-left:20px; list-style:disc; margin-bottom:6px; }
+        .legal-content strong { color:#fff; }
+      </style>
+    </section>
+  `;
+}
+
 function Contacto({ showToast }){
   const [form,setForm] = useState({ name:'', email:'', phone:'', subject:'', message:'' });
   const [busy,setBusy] = useState(false);
@@ -1233,9 +1496,10 @@ function Contacto({ showToast }){
   `;
 }
 
-function CartDrawer({ open, close, cart, toggle, sub, stickersList, activeSorteo }){
+function CartDrawer({ open, close, cart, toggle, sub, stickersList, activeSorteo, gotoTab }){
   const [stage,setStage] = useState('idle');
   const [form,setForm] = useState({name:'',email:'',rut:'',phone:''});
+  const [acceptTerms,setAcceptTerms] = useState(false);
   const [errMsg,setErrMsg] = useState('');
   const source = stickersList && stickersList.length ? stickersList : STICKERS;
   const items = Object.entries(cart)
@@ -1254,6 +1518,7 @@ function CartDrawer({ open, close, cart, toggle, sub, stickersList, activeSorteo
     if (!/\S+@\S+\.\S+/.test(form.email)) return setErrMsg('Email inválido');
     if (!form.rut.trim()) return setErrMsg('El RUT es obligatorio');
     if (!validateRUT(form.rut)) return setErrMsg('RUT inválido — revisá el dígito verificador');
+    if (!acceptTerms) return setErrMsg('Tenés que aceptar los Términos y Condiciones');
     setStage('redirecting');
     try {
       const payload = {
@@ -1311,6 +1576,10 @@ function CartDrawer({ open, close, cart, toggle, sub, stickersList, activeSorteo
                 <input value=${form.phone} onChange=${e=>setForm(f=>({...f,phone:e.target.value}))}
                   placeholder="Teléfono (opcional)"
                   class="w-full bg-black/40 border border-white/10 rounded-full px-5 py-3 outline-none focus:border-brand"/>
+                <label class="flex items-start gap-3 text-xs text-neutral-400 cursor-pointer p-3 bg-white/5 border border-white/10 rounded-xl hover:border-brand transition">
+                  <input type="checkbox" checked=${acceptTerms} onChange=${e=>setAcceptTerms(e.target.checked)} class="mt-0.5 w-4 h-4 accent-brand cursor-pointer"/>
+                  <span>Acepto los <button type="button" onClick=${()=>{close(); gotoTab && gotoTab('terms');}} class="text-brand hover:underline">Términos y Condiciones</button> y la <button type="button" onClick=${()=>{close(); gotoTab && gotoTab('privacy');}} class="text-brand hover:underline">Política de Privacidad</button>. Autorizo el tratamiento de mis datos personales conforme a la Ley 19.628.</span>
+                </label>
                 ${errMsg && html`<div class="text-xs text-red-400 text-center">${errMsg}</div>`}
                 <div class="border-t border-white/10 pt-4 space-y-2">
                   <div class="flex justify-between display text-xl"><span>TOTAL</span><span class="text-brand">$${total.toLocaleString('es-CL')}</span></div>
@@ -2226,31 +2495,54 @@ function App(){
         }}/>
       ${tab==='home' && html`
         <${React.Fragment}>
-          <${Hero} goto=${goto}/>
+          <${Hero} goto=${goto} activeSorteo=${activeSorteo}/>
           <${Marquee}/>
           <${HorizontalGallery} goto=${goto} heroCards=${heroCards}/>
           <${Sorteo} goto=${goto} sorteos=${sorteos}/>
+          <${FAQ} inSection=${true}/>
           <${Contacto} showToast=${showToast}/>
         </${React.Fragment}>
       `}
+      ${tab==='mis-compras' && html`<${MisCompras} onClose=${()=>goto('home')}/>`}
+      ${tab==='terms' && html`<${LegalPage} slug="terms" onClose=${()=>goto('home')}/>`}
+      ${tab==='privacy' && html`<${LegalPage} slug="privacy" onClose=${()=>goto('home')}/>`}
       ${tab==='sorteo' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase cursor-pointer">\u2190 VOLVER A INICIO</button></div><${Sorteo} goto=${goto} sorteos=${sorteos}/></div>`}
       ${tab==='stickers' && html`<div class="pt-24"><div class="px-6 pt-6"><button onClick=${()=>goto('home')} class="flex items-center gap-2 text-sm tracking-widest text-neutral-400 hover:text-brand transition-colors uppercase cursor-pointer">\u2190 VOLVER A INICIO</button></div><${Stickers} cart=${cart} toggle=${toggle} openCart=${()=>setCartOpen(true)} stickersList=${stickersList} activeSorteo=${activeSorteo}/></div>`}
 
-      <footer class="border-t border-white/10 mt-20 py-10 text-center px-6">
-        <div class="display text-2xl text-brand">CLAUDIO EN PISTA</div>
-        <div class="flex items-center justify-center gap-6 mt-4 text-xs tracking-[0.3em] text-neutral-400 flex-wrap">
-          <a href="mailto:contacto@grupomotor.cl" class="hover:text-brand">CONTACTO@GRUPOMOTOR.CL</a>
-          <span class="text-neutral-700">·</span>
-          <a href="https://instagram.com/claudioenpista" target="_blank" rel="noopener" class="hover:text-brand">@CLAUDIOENPISTA</a>
-          ${tab==='home' && html`
-            <span class="text-neutral-700">·</span>
-            <button onClick=${()=>{ const el=document.getElementById('contacto'); if(el) el.scrollIntoView({behavior:'smooth'}); }} class="hover:text-brand uppercase">CONTACTO</button>
-          `}
+      <footer class="border-t border-white/10 mt-20 py-10 px-6">
+        <div class="max-w-6xl mx-auto">
+          <div class="grid sm:grid-cols-3 gap-8 mb-8">
+            <div>
+              <div class="display text-2xl text-brand mb-3">CLAUDIO EN PISTA</div>
+              <div class="text-xs text-neutral-500 leading-relaxed">Sorteos oficiales con bases notariadas. Sistema VRF matemáticamente verificable basado en hash de Bitcoin.</div>
+            </div>
+            <div>
+              <div class="text-xs tracking-[0.3em] text-brand mb-3">SITIO</div>
+              <div class="space-y-2 text-sm">
+                <div><button onClick=${()=>goto('home')} class="text-neutral-400 hover:text-brand">Inicio</button></div>
+                <div><button onClick=${()=>goto('sorteo')} class="text-neutral-400 hover:text-brand">Sorteo y bases</button></div>
+                <div><button onClick=${()=>goto('stickers')} class="text-neutral-400 hover:text-brand">Tienda</button></div>
+                <div><button onClick=${()=>goto('mis-compras')} class="text-neutral-400 hover:text-brand">Mis compras</button></div>
+                <div><button onClick=${()=>{goto('home'); setTimeout(()=>{const el=document.getElementById('faq'); if(el) el.scrollIntoView({behavior:'smooth'});}, 400);}} class="text-neutral-400 hover:text-brand">Preguntas frecuentes</button></div>
+              </div>
+            </div>
+            <div>
+              <div class="text-xs tracking-[0.3em] text-brand mb-3">LEGAL Y CONTACTO</div>
+              <div class="space-y-2 text-sm">
+                <div><button onClick=${()=>goto('terms')} class="text-neutral-400 hover:text-brand">Términos y condiciones</button></div>
+                <div><button onClick=${()=>goto('privacy')} class="text-neutral-400 hover:text-brand">Política de privacidad</button></div>
+                <div><a href="mailto:contacto@grupomotor.cl" class="text-neutral-400 hover:text-brand">contacto@grupomotor.cl</a></div>
+                <div><a href="https://instagram.com/claudioenpista" target="_blank" rel="noopener" class="text-neutral-400 hover:text-brand">@claudioenpista</a></div>
+              </div>
+            </div>
+          </div>
+          <div class="border-t border-white/10 pt-6 text-center text-[10px] tracking-[0.3em] text-neutral-600">
+            © 2026 CLAUDIO EN PISTA · GRUPO MOTOR · TODOS LOS DERECHOS RESERVADOS
+          </div>
         </div>
-        <div class="text-[10px] tracking-[0.3em] text-neutral-600 mt-4">© 2026 CLAUDIO EN PISTA · TODOS LOS DERECHOS RESERVADOS</div>
       </footer>
 
-      <${CartDrawer} open=${cartOpen} close=${()=>setCartOpen(false)} cart=${cart} toggle=${toggle} sub=${sub} stickersList=${stickersList} activeSorteo=${activeSorteo}/>
+      <${CartDrawer} open=${cartOpen} close=${()=>setCartOpen(false)} cart=${cart} toggle=${toggle} sub=${sub} stickersList=${stickersList} activeSorteo=${activeSorteo} gotoTab=${goto}/>
 
       ${checkoutResult && html`
         <div class="fixed inset-0 z-[70] bg-black/90 backdrop-blur flex items-center justify-center p-6" onClick=${()=>setCheckoutResult(null)}>
@@ -2266,8 +2558,12 @@ function App(){
             ` : html`
               <div class="w-20 h-20 border-2 border-neutral-500 rounded-full flex items-center justify-center mx-auto text-4xl text-neutral-500">✕</div>
               <div class="display text-3xl mt-6">PAGO CANCELADO</div>
-              <p class="text-neutral-400 mt-3 text-sm">No procesamos ningún cobro. Podés volver a intentarlo cuando quieras.</p>
-              <button onClick=${()=>setCheckoutResult(null)} class="mt-8 px-8 py-3 border border-white/20 hover:border-brand display tracking-widest rounded-full">VOLVER AL SITIO</button>
+              <p class="text-neutral-400 mt-3 text-sm">No procesamos ningún cobro. Tu carrito sigue intacto si querés reintentarlo.</p>
+              <p class="text-neutral-500 mt-2 text-xs">Si tu tarjeta fue rechazada, probá con otra o revisá el límite. Para ayuda escribinos a <a href="mailto:contacto@grupomotor.cl" class="text-brand hover:underline">contacto@grupomotor.cl</a>.</p>
+              <div class="flex gap-3 justify-center mt-8 flex-wrap">
+                <button onClick=${()=>{setCheckoutResult(null); goto('stickers');}} class="px-6 py-3 bg-brand text-black display tracking-widest rounded-full hover-glow">REINTENTAR →</button>
+                <button onClick=${()=>setCheckoutResult(null)} class="px-6 py-3 border border-white/20 hover:border-brand display tracking-widest rounded-full">VOLVER AL SITIO</button>
+              </div>
             `}
           </${motion.div}>
         </div>
