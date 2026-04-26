@@ -440,6 +440,8 @@ async function verifyVRF(seedHex, hashPreCommit, count){
   return { hmac_hex: hex, winner_index: idx };
 }
 
+// (helper compartido removido — el webhook tiene su propia logica)
+
 // ===== Calculo de precio por packs (programacion dinamica) =====
 // Mismo algoritmo que la funcion SQL calc_pack_price (DP, optimal pack combination).
 function calcPackPrice(qty, config){
@@ -958,6 +960,10 @@ function Stickers({ cart, toggle, openCart, stickersList, activeSorteo }){
     ? all.filter(s => !s.sorteoId || s.sorteoId === activeSorteo.id)
     : all;
   const packsCfg = (activeSorteo && activeSorteo.packsPricing) || DEFAULT_PACKS_PRICING;
+  const [emitidos, setEmitidos] = useState(0);
+  useEffect(()=>{
+    if (activeSorteo?.id) dbCountNumerosEmitidos(activeSorteo.id).then(setEmitidos);
+  }, [activeSorteo?.id]);
 
   // Si el sorteo activo está cerrado (frozen/completed), pasó la fecha del seed, o pasó end_date → mostrar pantalla de cierre
   const lifecycle = activeSorteo?.lifecycleStatus || 'open';
@@ -1015,6 +1021,25 @@ function Stickers({ cart, toggle, openCart, stickersList, activeSorteo }){
           </div>
           <div class="text-sm text-neutral-400 max-w-md">${subtitle}</div>
         </${motion.div}>
+
+        ${activeSorteo && emitidos > 0 && html`
+          <div class="mb-6 border border-white/10 rounded-2xl bg-gradient-to-r from-brand/10 to-transparent p-5">
+            <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
+              <div>
+                <div class="text-xs tracking-[0.3em] text-brand">// SORTEO EN CURSO</div>
+                <div class="display text-xl mt-1">${activeSorteo.title}</div>
+              </div>
+              <div class="text-right">
+                <div class="display text-2xl text-brand">${emitidos.toLocaleString('es-CL')}</div>
+                <div class="text-[10px] tracking-widest text-neutral-500">NÚMEROS EMITIDOS</div>
+              </div>
+            </div>
+            <div class="h-2 bg-white/5 rounded-full overflow-hidden">
+              <div class="h-full bg-gradient-to-r from-brand to-yellow-400" style=${{width: Math.min(100, (emitidos / 1000) * 100) + '%'}}></div>
+            </div>
+            <div class="text-[10px] text-neutral-500 mt-2 tracking-widest">🔥 Sumate antes de que cierre</div>
+          </div>
+        `}
 
         <!-- Tabla de packs disponibles -->
         <div class="mb-10 border border-white/10 rounded-2xl bg-black/40 backdrop-blur p-5">
@@ -1620,6 +1645,235 @@ function CartDrawer({ open, close, cart, toggle, sub, stickersList, activeSorteo
   `;
 }
 
+/* ============== LEGAL & FAQ — Admin UI ============== */
+function LegalAdmin({ showToast }){
+  const [slug, setSlug] = useState('terms');
+  const [page, setPage] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(()=>{
+    setPage(null);
+    dbFetchLegalPage(slug).then(p => setPage(p || { slug, title: '', content_md: '' })).catch(e=>showToast('Error: '+e.message,'err'));
+  }, [slug]);
+
+  async function save(){
+    setBusy(true);
+    try {
+      const { error } = await sb.from('legal_pages').upsert({
+        slug: page.slug,
+        title: page.title,
+        content_md: page.content_md,
+        version: (page.version || 1) + (page.id ? 1 : 0),
+      });
+      if (error) throw error;
+      showToast('✓ Página guardada');
+    } catch(e){ showToast('Error: '+e.message, 'err'); }
+    setBusy(false);
+  }
+
+  return html`
+    <div>
+      <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div>
+          <div class="display text-3xl">PÁGINAS LEGALES</div>
+          <div class="text-[10px] text-neutral-500 tracking-widest mt-1">EDITABLE EN MARKDOWN SIMPLE · SE MUESTRA AL PÚBLICO</div>
+        </div>
+        <div class="flex gap-2">
+          <button onClick=${()=>setSlug('terms')} class=${"px-4 py-2 rounded-full text-xs tracking-widest "+(slug==='terms'?'bg-brand text-black':'border border-white/20 text-neutral-300 hover:border-brand')}>TÉRMINOS Y CONDICIONES</button>
+          <button onClick=${()=>setSlug('privacy')} class=${"px-4 py-2 rounded-full text-xs tracking-widest "+(slug==='privacy'?'bg-brand text-black':'border border-white/20 text-neutral-300 hover:border-brand')}>POLÍTICA DE PRIVACIDAD</button>
+        </div>
+      </div>
+      ${!page ? html`<div class="text-neutral-500 text-center py-12">Cargando...</div>` : html`
+        <div class="space-y-4">
+          <div>
+            <div class="text-xs tracking-widest text-neutral-500 mb-2">TÍTULO</div>
+            <input value=${page.title || ''} onChange=${e=>setPage({...page, title: e.target.value})}
+              class="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 outline-none focus:border-brand"/>
+          </div>
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <div class="text-xs tracking-widest text-neutral-500">CONTENIDO (markdown)</div>
+              <div class="text-[10px] text-neutral-600">## headers · **bold** · - bullets · líneas separadas = párrafos</div>
+            </div>
+            <textarea value=${page.content_md || ''} onChange=${e=>setPage({...page, content_md: e.target.value})} rows="20"
+              class="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 outline-none focus:border-brand text-sm font-mono leading-relaxed resize-y"></textarea>
+          </div>
+          <div class="flex justify-between items-center">
+            <div class="text-xs text-neutral-500">${page.updated_at ? `Última edición: ${new Date(page.updated_at).toLocaleString('es-CL')}` : ''}</div>
+            <div class="flex gap-2">
+              <a href=${`?tab=${slug}`} target="_blank" class="px-5 py-2 border border-white/20 hover:border-brand rounded-full text-xs tracking-widest">VER PÚBLICO ↗</a>
+              <button onClick=${save} disabled=${busy} class="px-6 py-2 bg-brand text-black display tracking-widest text-sm rounded-full hover-glow disabled:opacity-50">${busy?'GUARDANDO...':'💾 GUARDAR'}</button>
+            </div>
+          </div>
+        </div>
+      `}
+    </div>
+  `;
+}
+
+function FAQAdmin({ showToast }){
+  const [faqs, setFaqs] = useState([]);
+  const [busy, setBusy] = useState(false);
+  async function refresh(){
+    try { const { data, error } = await sb.from('faqs').select('*').order('position'); if (error) throw error; setFaqs(data || []); }
+    catch(e){ showToast('Error: '+e.message, 'err'); }
+  }
+  useEffect(()=>{ refresh(); }, []);
+  function patchLocal(idx, patch){ setFaqs(prev => prev.map((f,i)=> i===idx ? {...f, ...patch} : f)); }
+  async function save(idx){
+    const f = faqs[idx]; if (!f) return;
+    setBusy(true);
+    try {
+      const payload = { question: f.question, answer: f.answer, position: f.position||0, active: f.active!==false };
+      let res;
+      if (f.id) {
+        res = await sb.from('faqs').update(payload).eq('id', f.id).select().single();
+      } else {
+        res = await sb.from('faqs').insert(payload).select().single();
+      }
+      if (res.error) throw res.error;
+      patchLocal(idx, res.data);
+      showToast('✓ FAQ guardada');
+    } catch(e){ showToast('Error: '+e.message, 'err'); }
+    setBusy(false);
+  }
+  async function remove(id){
+    if (!confirm('¿Eliminar esta FAQ?')) return;
+    try {
+      const { error } = await sb.from('faqs').delete().eq('id', id);
+      if (error) throw error;
+      setFaqs(prev => prev.filter(x => x.id !== id));
+      showToast('✓ Eliminada');
+    } catch(e){ showToast('Error: '+e.message, 'err'); }
+  }
+  function add(){
+    setFaqs(prev => [...prev, { question:'Nueva pregunta', answer:'', position: (prev.length+1)*10, active: true }]);
+  }
+  return html`
+    <div>
+      <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div>
+          <div class="display text-3xl">PREGUNTAS FRECUENTES</div>
+          <div class="text-[10px] text-neutral-500 tracking-widest">${faqs.length} FAQs · ORDENADAS POR POSITION</div>
+        </div>
+        <div class="flex gap-2">
+          <button onClick=${refresh} class="px-3 py-2 border border-white/20 rounded-full text-xs tracking-widest hover:border-brand">↻ RECARGAR</button>
+          <button onClick=${add} class="px-5 py-2 bg-brand text-black display tracking-widest text-sm rounded-full hover-glow">+ AGREGAR</button>
+        </div>
+      </div>
+      <div class="space-y-3">
+        ${faqs.map((f,i)=>html`
+          <div key=${f.id||i} class="border border-white/10 rounded-2xl bg-black/30 p-4 space-y-2">
+            <div class="flex gap-2 items-center flex-wrap">
+              <input type="number" value=${f.position||0} onChange=${e=>patchLocal(i,{position:+e.target.value})} class="w-20 bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand text-xs" title="Posición/orden"/>
+              <input value=${f.question||''} onChange=${e=>patchLocal(i,{question:e.target.value})} placeholder="Pregunta" class="flex-1 min-w-[200px] bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand"/>
+              <label class="flex items-center gap-2 text-xs"><input type="checkbox" checked=${f.active!==false} onChange=${e=>patchLocal(i,{active:e.target.checked})}/> ACTIVA</label>
+              <button onClick=${()=>save(i)} disabled=${busy} class="px-4 py-2 rounded-lg text-xs border border-brand bg-brand/10 text-brand hover:bg-brand hover:text-black">💾 GUARDAR</button>
+              ${f.id && html`<button onClick=${()=>remove(f.id)} class="text-red-500 hover:text-red-400">✕</button>`}
+            </div>
+            <textarea value=${f.answer||''} onChange=${e=>patchLocal(i,{answer:e.target.value})} placeholder="Respuesta" rows="3"
+              class="w-full bg-black/60 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none focus:border-brand resize-y"></textarea>
+          </div>
+        `)}
+      </div>
+    </div>
+  `;
+}
+
+/* ============== BOLETAS — Admin UI ============== */
+function BoletasAdmin({ showToast }){
+  const [boletas, setBoletas] = useState([]);
+  const [busy, setBusy] = useState(false);
+  async function refresh(){
+    setBusy(true);
+    try {
+      const { data, error } = await sb.from('boletas').select('*, compras!inner(participantes(name, email))').order('created_at', { ascending: false }).limit(100);
+      if (error) throw error;
+      setBoletas(data || []);
+    } catch(e){ showToast('Error: '+e.message, 'err'); }
+    setBusy(false);
+  }
+  async function retry(boletaId, compraId){
+    try {
+      // Reset estado a pending y volver a llamar emit-boleta
+      await sb.from('boletas').update({ estado:'pending', error_msg:null }).eq('id', boletaId);
+      await fetch(`${SUPABASE_URL}/functions/v1/emit-boleta`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ compra_id: compraId, internal_token: 'cep-boleta-2026' })
+      });
+      showToast('✓ Reintento enviado');
+      setTimeout(refresh, 2000);
+    } catch(e){ showToast('Error: '+e.message, 'err'); }
+  }
+  useEffect(()=>{ refresh(); }, []);
+  return html`
+    <div>
+      <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div>
+          <div class="display text-3xl">BOLETAS ELECTRÓNICAS</div>
+          <div class="text-[10px] text-neutral-500 tracking-widest">${boletas.length} REGISTROS · ${boletas.filter(b=>b.estado==='emitted').length} EMITIDAS · ${boletas.filter(b=>b.estado==='failed').length} FALLIDAS · ${boletas.filter(b=>b.estado==='pending').length} PENDIENTES</div>
+        </div>
+        <div class="flex gap-2">
+          <button onClick=${refresh} class="px-3 py-2 border border-white/20 rounded-full text-xs tracking-widest hover:border-brand">↻ RECARGAR</button>
+        </div>
+      </div>
+      ${busy ? html`<div class="text-center py-12 text-neutral-500">Cargando...</div>` : boletas.length === 0 ? html`
+        <div class="text-center py-20 border border-white/10 rounded-2xl bg-white/5">
+          <div class="text-4xl mb-3">🧾</div>
+          <div class="text-neutral-400">No hay boletas emitidas todavía.</div>
+          <div class="text-xs text-neutral-600 mt-2">Cuando configures OpenFactura y se realice una compra paid, las boletas aparecen acá.</div>
+        </div>
+      ` : html`
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-neutral-500 text-[10px] tracking-widest border-b border-white/10">
+                <th class="py-3">FECHA</th><th>COMPRA</th><th>CLIENTE</th><th>FOLIO</th><th>MONTO</th><th>ESTADO</th><th>ACCIONES</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${boletas.map(b => html`
+                <tr key=${b.id} class="border-b border-white/5 hover:bg-white/5">
+                  <td class="py-3 text-xs text-neutral-500">${new Date(b.created_at).toLocaleDateString('es-CL')}</td>
+                  <td class="font-mono text-xs">#${b.compra_id}</td>
+                  <td class="text-xs">${b.compras?.participantes?.name || '—'}<br/><span class="text-neutral-500">${b.compras?.participantes?.email || ''}</span></td>
+                  <td class="font-mono">${b.folio || '—'}</td>
+                  <td class="text-brand font-mono">$${(b.monto_total||0).toLocaleString('es-CL')}</td>
+                  <td>
+                    ${b.estado === 'emitted' ? html`<span class="bg-green-900/40 text-green-400 px-2 py-0.5 rounded-full text-[10px] tracking-widest">EMITIDA</span>`
+                    : b.estado === 'pending' ? html`<span class="bg-yellow-900/40 text-yellow-400 px-2 py-0.5 rounded-full text-[10px] tracking-widest">PENDING</span>`
+                    : html`<span class="bg-red-900/40 text-red-400 px-2 py-0.5 rounded-full text-[10px] tracking-widest" title=${b.error_msg||''}>FAILED</span>`}
+                  </td>
+                  <td class="text-xs">
+                    <div class="flex gap-2">
+                      ${b.pdf_url && html`<a href=${b.pdf_url} target="_blank" class="text-brand hover:underline">PDF ↗</a>`}
+                      ${b.estado === 'failed' && html`<button onClick=${()=>retry(b.id, b.compra_id)} class="text-yellow-400 hover:underline">Reintentar</button>`}
+                    </div>
+                  </td>
+                </tr>
+              `)}
+            </tbody>
+          </table>
+        </div>
+      `}
+      <div class="mt-6 p-5 bg-yellow-900/10 border border-yellow-700/30 rounded-2xl text-xs text-yellow-200/80">
+        <div class="display text-sm mb-2 text-yellow-300">📋 CONFIGURACIÓN OPENFACTURA</div>
+        <div class="space-y-1 text-neutral-300">
+          <div>Cuando termines el setup en openfactura.com, mandame estos datos para activar la emisión automática:</div>
+          <ul class="list-disc list-inside text-xs mt-2 space-y-1 ml-2">
+            <li>API Key (token de OpenFactura)</li>
+            <li>RUT emisor (formato 76.XXX.XXX-X)</li>
+            <li>Razón social (ej: GRUPO MOTOR SPA)</li>
+            <li>Giro / actividad económica</li>
+            <li>Dirección + comuna</li>
+            <li>Si vas a empezar en sandbox o producción</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 /* ============== SORTEO VRF — Admin UI ============== */
 function SorteoVRFAdmin({ sorteos, refreshSorteos, showToast }){
   const [selectedId, setSelectedId] = useState(null);
@@ -2018,6 +2272,9 @@ function Admin({ open, close, sorteos, stickersList,
                     ['stickers','🎟️ STICKERS'],
                     ['participantes','👥 PARTICIPANTES'],
                     ['bases','📜 BASES PDF'],
+                    ['legal','⚖️ LEGAL (T&C + PRIVACY)'],
+                    ['faq','❓ FAQ'],
+                    ['boletas','🧾 BOLETAS SII'],
                     ['ruleta','🎲 EJECUTAR SORTEO'],
                   ].map(([k,l])=>html`
                     <button key=${k} onClick=${()=>setSection(k)}
@@ -2258,6 +2515,9 @@ function Admin({ open, close, sorteos, stickersList,
                       </div>
                     </div>
                   `}
+                  ${section==='legal' && html`<${LegalAdmin} showToast=${showToast}/>`}
+                  ${section==='faq' && html`<${FAQAdmin} showToast=${showToast}/>`}
+                  ${section==='boletas' && html`<${BoletasAdmin} showToast=${showToast}/>`}
                   ${section==='ruleta' && html`<${SorteoVRFAdmin} sorteos=${sorteos} refreshSorteos=${refreshSorteos} showToast=${showToast}/>`}
                 </main>
               </div>
