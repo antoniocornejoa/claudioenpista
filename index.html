@@ -31,8 +31,14 @@
   }
 </script>
 <script src="https://cdn.tailwindcss.com"></script>
-<!-- QRCode generator (client-side, sin dependencias externas en runtime) -->
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<!-- QRCode generator: triple fallback (jsdelivr → unpkg → api externa) -->
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js" onerror="this.dataset.f=1"></script>
+<script>
+  // Fallback 1: si jsdelivr falló, probar unpkg sincrónicamente
+  if (!window.QRCode) {
+    document.write('<script src="https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js"><\/script>');
+  }
+</script>
 <script>
   tailwind.config = {
     theme: { extend: {
@@ -2170,16 +2176,36 @@ function VendedoresAdmin({ showToast }){
   }
 
   async function generateQR(vendor){
-    if (!window.QRCode) return showToast('Librería QR no cargada — recarga la página', 'err');
     const url = `${window.location.origin}/?ref=${vendor.slug}`;
+    // Intento 1: librería local (jsdelivr o unpkg via fallback)
+    if (window.QRCode && typeof window.QRCode.toDataURL === 'function') {
+      try {
+        const dataUrl = await window.QRCode.toDataURL(url, {
+          width: 600, margin: 2,
+          color: { dark: '#000000ff', light: '#ffffffff' },
+          errorCorrectionLevel: 'M',
+        });
+        setQrModal({ vendor, dataUrl, url });
+        return;
+      } catch(e){ /* cae al fallback externo */ }
+    }
+    // Intento 2: API pública qrserver.com como respaldo (no requiere librería)
     try {
-      const dataUrl = await QRCode.toDataURL(url, {
-        width: 600, margin: 2,
-        color: { dark: '#000000ff', light: '#ffffffff' },
-        errorCorrectionLevel: 'M',
+      const apiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=10&data=${encodeURIComponent(url)}`;
+      // Fetch a blob para tener un PNG real descargable
+      const res = await fetch(apiUrl);
+      if (!res.ok) throw new Error('qrserver.com falló');
+      const blob = await res.blob();
+      const dataUrl = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onloadend = () => resolve(r.result);
+        r.onerror = reject;
+        r.readAsDataURL(blob);
       });
       setQrModal({ vendor, dataUrl, url });
-    } catch(e){ showToast('Error generando QR: '+e.message, 'err'); }
+    } catch(e){
+      showToast('No se pudo generar el QR. Revisa tu conexión a internet.', 'err');
+    }
   }
 
   function downloadQR(){
