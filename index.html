@@ -2369,6 +2369,9 @@ function SorteoVRFAdmin({ sorteos, refreshSorteos, showToast }){
   const [busy, setBusy] = useState(false);
   const [foundBlock, setFoundBlock] = useState(null);
   const [searching, setSearching] = useState(false);
+  const [autoPolling, setAutoPolling] = useState(false);
+  const [pollMsg, setPollMsg] = useState('');
+  const [latestTipInfo, setLatestTipInfo] = useState(null); // {height, timestamp}
   const [now, setNow] = useState(Date.now());
   useEffect(()=>{ const t = setInterval(()=>setNow(Date.now()), 1000); return ()=>clearInterval(t); },[]);
 
@@ -2418,16 +2421,81 @@ function SorteoVRFAdmin({ sorteos, refreshSorteos, showToast }){
   }
   async function handleAutoFindBlock(){
     if (!sorteo?.seedTargetAt) return showToast('No hay seed objetivo', 'err');
-    setSearching(true); setFoundBlock(null);
+    setSearching(true); setFoundBlock(null); setAutoPolling(false);
     try {
       const targetMs = new Date(sorteo.seedTargetAt).getTime();
       const block = await findBlockAfter(targetMs);
       setFoundBlock(block);
       setBlockHeight(String(block.height));
       showToast(`✓ Bloque BTC #${block.height} encontrado`);
-    } catch(e){ showToast(e.message, 'err'); }
+    } catch(e){
+      // Si no hay bloque todavía, activar auto-polling
+      if (e.message && e.message.includes('Aún no hay un bloque')) {
+        setAutoPolling(true);
+        setPollMsg('Aún no se mina un bloque BTC. Sondeo automático activo cada 30s.');
+        showToast('🔄 Auto-sondeo activado. Te aviso apenas aparezca el bloque.');
+      } else {
+        showToast(e.message, 'err');
+      }
+    }
     setSearching(false);
   }
+
+  // Auto-poll: cada 30 segundos intenta encontrar el bloque, se desactiva al encontrarlo o al cambiar de sorteo
+  useEffect(()=>{
+    if (!autoPolling || foundBlock || !sorteo?.seedTargetAt) return;
+    let cancelled = false;
+    const tryFind = async () => {
+      if (cancelled) return;
+      try {
+        const targetMs = new Date(sorteo.seedTargetAt).getTime();
+        const block = await findBlockAfter(targetMs);
+        if (cancelled) return;
+        setFoundBlock(block);
+        setBlockHeight(String(block.height));
+        setAutoPolling(false);
+        setPollMsg('');
+        showToast(`🎉 Bloque BTC #${block.height} encontrado automáticamente`);
+        // Beep audible para alertar al admin
+        try {
+          const ctx = new (window.AudioContext || window.webkitAudioContext)();
+          const o = ctx.createOscillator(); const g = ctx.createGain();
+          o.connect(g); g.connect(ctx.destination); o.frequency.value = 880; g.gain.value = 0.1;
+          o.start(); setTimeout(()=>{ o.frequency.value = 1320; }, 150); setTimeout(()=>o.stop(), 350);
+        } catch(_) {}
+      } catch (e) {
+        // Sigue esperando — actualizar mensaje si la API falla
+        if (!cancelled) setPollMsg(`Aún no aparece. Reintentando cada 30s. (${new Date().toLocaleTimeString('es-CL')})`);
+      }
+    };
+    tryFind();
+    const iv = setInterval(tryFind, 30000);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, [autoPolling, foundBlock, sorteo?.seedTargetAt]);
+
+  // Refrescar el último bloque BTC conocido (tip) cada 60s — sirve para predecir el próximo bloque
+  useEffect(()=>{
+    if (sorteo?.lifecycleStatus !== 'frozen') return;
+    let cancelled = false;
+    const refreshTip = async () => {
+      try {
+        const r = await fetch('https://mempool.space/api/blocks/tip/height');
+        if (!r.ok) return;
+        const h = parseInt((await r.text()).trim());
+        if (!h || cancelled) return;
+        const r2 = await fetch(`https://mempool.space/api/block-height/${h}`);
+        if (!r2.ok) return;
+        const hash = (await r2.text()).trim();
+        const r3 = await fetch(`https://mempool.space/api/block/${hash}`);
+        if (!r3.ok) return;
+        const meta = await r3.json();
+        if (!cancelled) setLatestTipInfo({ height: meta.height, timestamp: meta.timestamp });
+      } catch(_) {}
+    };
+    refreshTip();
+    const iv = setInterval(refreshTip, 60000);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, [sorteo?.lifecycleStatus]);
 
   return html`
     <div>
@@ -2438,7 +2506,7 @@ function SorteoVRFAdmin({ sorteos, refreshSorteos, showToast }){
 
       <div class="border border-white/10 rounded-2xl bg-black/40 p-5 mb-6">
         <div class="text-xs tracking-widest text-brand mb-3">SELECCIONAR SORTEO</div>
-        <select value=${selectedId||''} onChange=${e=>{setSelectedId(+e.target.value || null); setSeedTargetAt(''); setBlockHeight('');}}
+        <select value=${selectedId||''} onChange=${e=>{setSelectedId(+e.target.value || null); setSeedTargetAt(''); setBlockHeight(''); setFoundBlock(null); setAutoPolling(false); setPollMsg(''); setLatestTipInfo(null);}}
           class="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 outline-none focus:border-brand">
           <option value="">— elige un sorteo —</option>
           ${sorteos.map(s => html`<option key=${s.id} value=${s.id}>${s.title} · ${s.lifecycleStatus.toUpperCase()}</option>`)}
@@ -2530,12 +2598,46 @@ function SorteoVRFAdmin({ sorteos, refreshSorteos, showToast }){
                 <div class="flex items-start justify-between gap-3 mb-3">
                   <div>
                     <div class="display text-lg text-brand">🔍 BUSCAR BLOQUE AUTOMÁTICAMENTE</div>
-                    <div class="text-xs text-neutral-400 mt-1">Consultamos mempool.space por ti y rellenamos el campo. Recomendado.</div>
+                    <div class="text-xs text-neutral-400 mt-1">Consultamos mempool.space por ti. Si todavía no se mina un bloque después del seed, activamos auto-sondeo cada 30s.</div>
                   </div>
                 </div>
-                <button onClick=${handleAutoFindBlock} disabled=${searching || !targetReached}
+
+                <!-- Predicción del próximo bloque -->
+                ${latestTipInfo && targetReached && !foundBlock && html`${(()=>{
+                  const tipMs = latestTipInfo.timestamp * 1000;
+                  const expectedNext = tipMs + 10*60*1000; // promedio Bitcoin
+                  const eta = expectedNext - now;
+                  const sinceLast = now - tipMs;
+                  return html`
+                    <div class="bg-black/40 border border-white/10 rounded-lg p-3 mb-3 text-xs">
+                      <div class="flex justify-between text-neutral-400">
+                        <span>Último bloque BTC: <span class="text-white font-mono">#${latestTipInfo.height}</span></span>
+                        <span>Hace ${Math.floor(sinceLast/60000)}m ${Math.floor((sinceLast%60000)/1000)}s</span>
+                      </div>
+                      <div class="text-neutral-500 mt-1">📡 Próximo bloque esperado en ~${eta > 0 ? `${Math.max(0,Math.floor(eta/60000))}m ${Math.max(0,Math.floor((eta%60000)/1000))}s` : 'cualquier momento'} (promedio Bitcoin: 10 min, varía)</div>
+                    </div>
+                  `;
+                })()}`}
+
+                <!-- Estado auto-polling -->
+                ${autoPolling && !foundBlock && html`
+                  <div class="bg-blue-900/20 border border-blue-700/40 rounded-lg p-3 mb-3 text-xs flex items-center gap-3">
+                    <div class="animate-pulse text-2xl">📡</div>
+                    <div class="flex-1">
+                      <div class="text-blue-300 font-semibold">Sondeo automático activo</div>
+                      <div class="text-neutral-400 text-[11px] mt-0.5">${pollMsg || 'Buscando cada 30 segundos. Te aviso apenas aparezca el bloque (con sonido).'}</div>
+                    </div>
+                    <button onClick=${()=>setAutoPolling(false)} class="text-[10px] text-neutral-500 hover:text-red-400 underline">cancelar</button>
+                  </div>
+                `}
+
+                <button onClick=${handleAutoFindBlock} disabled=${searching || !targetReached || autoPolling}
                   class="w-full px-6 py-3 bg-brand text-black display tracking-widest rounded-full hover-glow disabled:opacity-40 disabled:cursor-not-allowed">
-                  ${searching?'Buscando en mempool.space...': !targetReached ? 'AÚN NO ES HORA' : '🔍 BUSCAR EL BLOQUE BTC AHORA'}
+                  ${searching?'Buscando en mempool.space...':
+                    autoPolling?'🔄 SONDEANDO AUTOMÁTICAMENTE...':
+                    foundBlock?'✓ BLOQUE ENCONTRADO':
+                    !targetReached?'AÚN NO ES HORA':
+                    '🔍 BUSCAR EL BLOQUE BTC AHORA'}
                 </button>
                 ${foundBlock && html`
                   <div class="mt-4 bg-black/60 border border-green-700/40 rounded-xl p-4 text-xs">
