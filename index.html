@@ -2065,6 +2065,34 @@ function FAQAdmin({ showToast }){
   `;
 }
 
+/* ============== Reloj Chile (referencia para configurar cierres) ============== */
+function ChileClock(){
+  const [now, setNow] = useState(new Date());
+  useEffect(()=>{
+    const t = setInterval(()=>setNow(new Date()), 1000);
+    return ()=>clearInterval(t);
+  },[]);
+  const fmtDate = new Intl.DateTimeFormat('es-CL', {
+    timeZone:'America/Santiago', weekday:'short', day:'2-digit', month:'short'
+  });
+  const fmtTime = new Intl.DateTimeFormat('es-CL', {
+    timeZone:'America/Santiago', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false
+  });
+  // Detectar si el horario es CLT (-04) o CLST (-03)
+  const tzPart = new Intl.DateTimeFormat('en', { timeZone:'America/Santiago', timeZoneName:'shortOffset' }).formatToParts(now).find(p=>p.type==='timeZoneName');
+  const offset = tzPart ? tzPart.value.replace('GMT','UTC') : '';
+  return html`
+    <div class="flex items-center gap-2 px-4 py-2 border border-brand/30 rounded-full bg-black/40 text-xs" title="Hora actual en Chile (referencia para configurar fechas de cierre)">
+      <span class="text-brand text-base leading-none">🕐</span>
+      <div class="flex flex-col leading-tight">
+        <div class="text-neutral-400 text-[10px] uppercase tracking-widest">${fmtDate.format(now)} · ${offset}</div>
+        <div class="text-white font-mono tabular-nums tracking-wider">${fmtTime.format(now)}</div>
+      </div>
+      <span class="text-[9px] text-neutral-500 tracking-widest border-l border-white/10 pl-2 ml-1">CHILE</span>
+    </div>
+  `;
+}
+
 /* ============== INGRESOS / IVA — Admin UI ============== */
 function IngresosAdmin({ showToast }){
   const [rows, setRows] = useState([]);
@@ -2685,13 +2713,16 @@ function Admin({ open, close, sorteos, stickersList,
         <${motion.div} initial=${{opacity:0}} animate=${{opacity:1}} exit=${{opacity:0}}
           data-lenis-prevent class="fixed inset-0 z-[60] bg-black/95 backdrop-blur overflow-y-auto overscroll-contain">
           <div class="max-w-7xl mx-auto p-6 md:p-12">
-            <div class="flex items-center justify-between mb-10">
+            <div class="flex items-center justify-between mb-10 flex-wrap gap-4">
               <div>
                 <div class="text-xs tracking-[0.4em] text-brand">// PANEL DE CONTROL</div>
                 <h2 class="display text-5xl md:text-7xl mt-2">ADMIN <span class="text-brand">CEP</span></h2>
                 ${user && html`<div class="text-xs text-neutral-500 mt-2">${user.email} · <button onClick=${handleSignOut} class="text-brand hover:underline">cerrar sesión</button></div>`}
               </div>
-              <button onClick=${close} class="px-6 py-3 border border-white/20 rounded-full hover:border-brand display tracking-widest text-sm">CERRAR ✕</button>
+              <div class="flex items-center gap-3 flex-wrap">
+                ${user && html`<${ChileClock}/>`}
+                <button onClick=${close} class="px-6 py-3 border border-white/20 rounded-full hover:border-brand display tracking-widest text-sm">CERRAR ✕</button>
+              </div>
             </div>
 
             ${!user ? html`
@@ -2751,7 +2782,7 @@ function Admin({ open, close, sorteos, stickersList,
                             <div class="flex flex-wrap gap-3 items-center">
                               <input value=${s.title} onChange=${e=>patchSorteoLocal(i,{title:e.target.value})} placeholder="T\u00edtulo" class="flex-1 min-w-[200px] bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand"/>
                               <input value=${s.prize} onChange=${e=>patchSorteoLocal(i,{prize:e.target.value})} placeholder="Descripci\u00f3n" class="flex-1 min-w-[150px] bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand"/>
-                              <label class="flex items-center gap-2 text-[10px] text-neutral-500 tracking-widest"><span>CIERRE COMPRAS:</span><input type="datetime-local" value=${isoToChileLocal(s.end)} onChange=${e=>patchSorteoLocal(i,{end:chileLocalToISO(e.target.value)})} class="bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand text-xs" title="Fecha y hora de cierre de compras de stickers (hora Chile)"/></label>
+                              <label class="flex items-center gap-2 text-[10px] text-neutral-500 tracking-widest"><span>CIERRE COMPRAS <span class="text-brand normal-case lowercase">(hora chile)</span>:</span><input type="datetime-local" value=${isoToChileLocal(s.end)} onChange=${e=>patchSorteoLocal(i,{end:chileLocalToISO(e.target.value)})} class="bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand text-xs" title="Fecha y hora de cierre de compras de stickers (hora Chile)"/></label>
                               <label class="flex items-center gap-2 text-xs"><input type="checkbox" checked=${s.active} onChange=${e=>patchSorteoLocal(i,{active:e.target.checked})}/> ON</label>
                               <button onClick=${()=>patchSorteoLocal(i,{status:s.status==='bloqueado'?'activo':'bloqueado'})} class=${"px-2 py-1 rounded-lg text-xs border "+(s.status==='bloqueado'?"border-red-500 text-red-400 bg-red-900/30":"border-green-500 text-green-400 bg-green-900/30")}>${s.status==='bloqueado'?'BLOQUEADO':'ACTIVO'}</button>
                               <button onClick=${()=>togglePanel(i,'hero')} class=${"px-2 py-1 rounded-lg text-xs border "+(isPanel(i,'hero')?"border-brand text-brand":"border-white/20 text-neutral-400")}>${isPanel(i,'hero')?'CERRAR':'HERO CARDS'}</button>
