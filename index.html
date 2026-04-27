@@ -31,6 +31,8 @@
   }
 </script>
 <script src="https://cdn.tailwindcss.com"></script>
+<!-- QRCode generator (client-side, sin dependencias externas en runtime) -->
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 <script>
   tailwind.config = {
     theme: { extend: {
@@ -1831,10 +1833,13 @@ function CartDrawer({ open, close, cart, toggle, sub, stickersList, activeSorteo
     if (!acceptTerms) return setErrMsg('Tienes que aceptar los Términos y Condiciones');
     setStage('redirecting');
     try {
+      let vendedorSlug = null;
+      try { vendedorSlug = sessionStorage.getItem('cep:vendedor_slug') || null; } catch(_) {}
       const payload = {
         sticker_ids: items.map(it => it.id),
         customer: { name: form.name.trim(), email: form.email.trim().toLowerCase(), rut: form.rut.trim(), phone: form.phone.trim()||null },
-        return_url: window.location.origin
+        return_url: window.location.origin,
+        vendedor_slug: vendedorSlug
       };
       const res = await fetch(`${SUPABASE_URL}/functions/v1/create-checkout`, {
         method:'POST',
@@ -2089,6 +2094,252 @@ function ChileClock(){
         <div class="text-white font-mono tabular-nums tracking-wider">${fmtTime.format(now)}</div>
       </div>
       <span class="text-[9px] text-neutral-500 tracking-widest border-l border-white/10 pl-2 ml-1">CHILE</span>
+    </div>
+  `;
+}
+
+/* ============== VENDEDORES / QR — Admin UI ============== */
+function VendedoresAdmin({ showToast }){
+  const [rows, setRows] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [commPct, setCommPct] = useState(10);
+  const [savingComm, setSavingComm] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
+  const [qrModal, setQrModal] = useState(null); // {vendedor, dataUrl}
+
+  async function refresh(){
+    setBusy(true);
+    try {
+      const [revRes, settingRes] = await Promise.all([
+        sb.from('v_vendedores_revenue').select('*'),
+        sb.from('app_settings').select('value').eq('key', 'vendor_commission').maybeSingle(),
+      ]);
+      if (revRes.error) throw revRes.error;
+      setRows(revRes.data || []);
+      const pct = settingRes.data?.value?.pct ?? 10;
+      setCommPct(Number(pct));
+    } catch(e){ showToast('Error: '+e.message, 'err'); }
+    setBusy(false);
+  }
+  useEffect(()=>{ refresh(); }, []);
+
+  async function saveCommission(){
+    setSavingComm(true);
+    try {
+      const newPct = Math.max(0, Math.min(100, Number(commPct) || 0));
+      const { error } = await sb.from('app_settings').upsert({ key:'vendor_commission', value:{ pct: newPct, base:'neto' }, updated_at: new Date().toISOString() }, { onConflict:'key' });
+      if (error) throw error;
+      showToast(`✓ Comisión global actualizada a ${newPct}%`);
+      await refresh();
+    } catch(e){ showToast('Error: '+e.message, 'err'); }
+    setSavingComm(false);
+  }
+
+  async function addVendor(){
+    const name = prompt('Nombre del punto de venta (ej: "Bencinera Copec El Bosque"):');
+    if (!name || !name.trim()) return;
+    // Sugerir slug a partir del nombre
+    const baseSlug = name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40);
+    const slug = prompt(`Código corto (slug) para la URL — solo letras minúsculas, números y guiones:`, baseSlug);
+    if (!slug) return;
+    const cleanSlug = slug.trim().toLowerCase();
+    if (!/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/.test(cleanSlug)) {
+      return showToast('Slug inválido. Usa solo a-z, 0-9 y guiones (mín 3 chars)', 'err');
+    }
+    try {
+      const { data, error } = await sb.from('vendedores').insert({ name: name.trim(), slug: cleanSlug, active: true }).select().single();
+      if (error) throw error;
+      showToast(`✓ Vendedor "${data.name}" creado`);
+      await refresh();
+    } catch(e){
+      if (e.code === '23505') showToast('Ya existe un vendedor con ese código', 'err');
+      else showToast('Error: '+e.message, 'err');
+    }
+  }
+
+  async function patchVendor(id, patch){
+    try {
+      const { error } = await sb.from('vendedores').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id);
+      if (error) throw error;
+      await refresh();
+    } catch(e){ showToast('Error: '+e.message, 'err'); }
+  }
+  async function toggleActive(id, currentActive){
+    if (!confirm(currentActive ? '¿Desactivar este vendedor? Su QR dejará de funcionar para nuevas compras (las anteriores siguen contando).' : '¿Reactivar este vendedor?')) return;
+    await patchVendor(id, { active: !currentActive });
+  }
+
+  async function generateQR(vendor){
+    if (!window.QRCode) return showToast('Librería QR no cargada — recarga la página', 'err');
+    const url = `${window.location.origin}/?ref=${vendor.slug}`;
+    try {
+      const dataUrl = await QRCode.toDataURL(url, {
+        width: 600, margin: 2,
+        color: { dark: '#000000ff', light: '#ffffffff' },
+        errorCorrectionLevel: 'M',
+      });
+      setQrModal({ vendor, dataUrl, url });
+    } catch(e){ showToast('Error generando QR: '+e.message, 'err'); }
+  }
+
+  function downloadQR(){
+    if (!qrModal) return;
+    const a = document.createElement('a');
+    a.href = qrModal.dataUrl;
+    a.download = `qr-${qrModal.vendor.slug}.png`;
+    a.click();
+  }
+  function copyURL(){
+    if (!qrModal) return;
+    navigator.clipboard.writeText(qrModal.url).then(()=>showToast('✓ URL copiada al portapapeles'));
+  }
+
+  const fmtCLP = (n)=> '$'+(n||0).toLocaleString('es-CL');
+  const visibleRows = showInactive ? rows : rows.filter(r => r.active);
+  const totals = visibleRows.reduce((acc,r)=>({
+    brutas: acc.brutas + (r.ventas_brutas||0),
+    netas: acc.netas + (r.ventas_netas||0),
+    compras: acc.compras + (r.compras_paid||0),
+    numeros: acc.numeros + (r.numeros_vendidos||0),
+    comision: acc.comision + (r.comision_calculada||0),
+  }), {brutas:0,netas:0,compras:0,numeros:0,comision:0});
+
+  return html`
+    <div>
+      <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div>
+          <div class="display text-3xl">VENDEDORES / PUNTOS DE VENTA</div>
+          <div class="text-[10px] text-neutral-500 tracking-widest">${rows.length} REGISTRADOS · ${rows.filter(r=>r.active).length} ACTIVOS · COMISIÓN ${commPct}% SOBRE NETO</div>
+        </div>
+        <div class="flex gap-2 flex-wrap">
+          <label class="flex items-center gap-2 px-4 py-2 border border-white/20 rounded-full text-xs tracking-widest hover:border-brand cursor-pointer">
+            <input type="checkbox" checked=${showInactive} onChange=${e=>setShowInactive(e.target.checked)}/> mostrar inactivos
+          </label>
+          <button onClick=${refresh} class="px-3 py-2 border border-white/20 rounded-full text-xs tracking-widest hover:border-brand">↻ RECARGAR</button>
+          <button onClick=${addVendor} class="px-5 py-2 bg-brand text-black display tracking-widest text-sm rounded-full hover-glow">+ AGREGAR</button>
+        </div>
+      </div>
+
+      <!-- Setting comisión global -->
+      <div class="bg-yellow-900/10 border border-yellow-700/30 rounded-2xl p-4 mb-5 flex flex-wrap items-center gap-3">
+        <div class="flex-1 min-w-[200px]">
+          <div class="text-[10px] tracking-widest text-yellow-300 mb-1">// COMISIÓN GLOBAL (% sobre NETO sin IVA)</div>
+          <div class="text-xs text-neutral-400">Aplica a todos los vendedores. Se calcula sobre <strong>monto neto</strong> (precio / 1,19) de las compras pagadas referidas por su QR.</div>
+        </div>
+        <div class="flex items-center gap-2">
+          <input type="number" min="0" max="100" step="0.5" value=${commPct} onChange=${e=>setCommPct(e.target.value)}
+            class="w-24 bg-black/40 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-brand text-right font-mono"/>
+          <span class="text-yellow-300 font-bold">%</span>
+          <button onClick=${saveCommission} disabled=${savingComm} class="px-4 py-2 bg-yellow-700/40 border border-yellow-700/60 hover:bg-yellow-600/50 text-yellow-200 rounded-full text-xs tracking-widest disabled:opacity-50">${savingComm?'...':'💾 GUARDAR'}</button>
+        </div>
+      </div>
+
+      <!-- KPIs -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <div class="bg-white/5 border border-white/10 rounded-2xl p-4 min-w-0">
+          <div class="text-[10px] tracking-widest text-neutral-400 mb-1">// VENTAS REFERIDAS (BRUTO)</div>
+          <div class="display text-xl text-brand truncate">${fmtCLP(totals.brutas)}</div>
+        </div>
+        <div class="bg-white/5 border border-white/10 rounded-2xl p-4 min-w-0">
+          <div class="text-[10px] tracking-widest text-neutral-400 mb-1">// NETO REFERIDO</div>
+          <div class="display text-xl truncate">${fmtCLP(totals.netas)}</div>
+        </div>
+        <div class="bg-yellow-900/10 border border-yellow-700/30 rounded-2xl p-4 min-w-0">
+          <div class="text-[10px] tracking-widest text-yellow-300 mb-1">// COMISIONES A PAGAR</div>
+          <div class="display text-xl text-yellow-300 truncate">${fmtCLP(totals.comision)}</div>
+        </div>
+        <div class="bg-white/5 border border-white/10 rounded-2xl p-4 min-w-0">
+          <div class="text-[10px] tracking-widest text-neutral-400 mb-1">// VENTAS</div>
+          <div class="display text-xl">${totals.compras}</div>
+          <div class="text-[10px] text-neutral-500 mt-1">${totals.numeros} números</div>
+        </div>
+      </div>
+
+      <!-- Lista vendedores como cards -->
+      ${busy ? html`<div class="text-center py-12 text-neutral-500">Cargando...</div>` : visibleRows.length === 0 ? html`
+        <div class="text-center py-20 border-2 border-dashed border-white/10 rounded-2xl bg-white/5">
+          <div class="text-5xl mb-3">📍</div>
+          <div class="text-neutral-400">No hay vendedores ${showInactive?'':'activos '}registrados.</div>
+          <button onClick=${addVendor} class="mt-4 px-6 py-3 bg-brand text-black display tracking-widest rounded-full hover-glow">+ AGREGAR EL PRIMERO</button>
+        </div>
+      ` : html`
+        <div class="space-y-3">
+          ${visibleRows.map(v => html`
+            <div key=${v.vendedor_id} class=${"border rounded-xl p-4 transition "+(v.active?'border-white/10 bg-black/30 hover:border-white/20':'border-red-900/30 bg-red-900/5 opacity-60')}>
+              <div class="flex items-start gap-4 flex-wrap">
+                <div class="flex-1 min-w-[200px]">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <input value=${v.name} onBlur=${e=>e.target.value!==v.name && patchVendor(v.vendedor_id, { name: e.target.value })} class="font-semibold text-white bg-transparent outline-none focus:bg-black/40 rounded px-2 py-1 -ml-2"/>
+                    ${!v.active && html`<span class="bg-red-900/40 text-red-400 px-2 py-0.5 rounded-full text-[9px] tracking-widest">INACTIVO</span>`}
+                  </div>
+                  <div class="text-[11px] text-neutral-500 mt-1 flex items-center gap-2 flex-wrap">
+                    <span class="font-mono text-brand">/?ref=${v.slug}</span>
+                    ${v.rut && html`<span>· RUT ${v.rut}</span>`}
+                    ${v.contact_email && html`<span>· ${v.contact_email}</span>`}
+                  </div>
+                </div>
+                <div class="flex flex-col items-end gap-1 shrink-0">
+                  <div class="text-brand font-mono font-bold text-lg">${fmtCLP(v.ventas_brutas)}</div>
+                  <div class="text-yellow-300 text-xs font-mono">comisión: ${fmtCLP(v.comision_calculada)}</div>
+                  <div class="text-[10px] text-neutral-500">${v.compras_paid} ventas · ${v.numeros_vendidos} números</div>
+                </div>
+              </div>
+              <div class="flex flex-wrap gap-2 mt-3 pt-3 border-t border-white/5">
+                <button onClick=${()=>generateQR(v)} class="px-4 py-2 bg-brand/10 border border-brand/40 text-brand rounded-full text-xs tracking-widest hover:bg-brand hover:text-black transition">📱 VER QR</button>
+                <button onClick=${async ()=>{
+                  const newRut = prompt('RUT del vendedor (para boletas/comisión):', v.rut||'');
+                  if (newRut !== null) await patchVendor(v.vendedor_id, { rut: newRut.trim()||null });
+                }} class="px-3 py-2 border border-white/10 rounded-full text-xs hover:border-brand">RUT</button>
+                <button onClick=${async ()=>{
+                  const newEmail = prompt('Email del vendedor:', v.contact_email||'');
+                  if (newEmail !== null) await patchVendor(v.vendedor_id, { contact_email: newEmail.trim()||null });
+                }} class="px-3 py-2 border border-white/10 rounded-full text-xs hover:border-brand">EMAIL</button>
+                <button onClick=${async ()=>{
+                  const newPhone = prompt('Teléfono del vendedor:', v.contact_phone||'');
+                  if (newPhone !== null) await patchVendor(v.vendedor_id, { contact_phone: newPhone.trim()||null });
+                }} class="px-3 py-2 border border-white/10 rounded-full text-xs hover:border-brand">📞</button>
+                <button onClick=${()=>toggleActive(v.vendedor_id, v.active)} class=${"ml-auto px-3 py-2 border rounded-full text-xs tracking-widest "+(v.active?'border-red-900/50 text-red-400 hover:bg-red-900/30':'border-green-900/50 text-green-400 hover:bg-green-900/30')}>
+                  ${v.active?'DESACTIVAR':'REACTIVAR'}
+                </button>
+              </div>
+            </div>
+          `)}
+        </div>
+      `}
+
+      <!-- Notas -->
+      <div class="mt-6 p-5 bg-blue-900/10 border border-blue-700/30 rounded-2xl text-xs">
+        <div class="display text-sm mb-2 text-blue-300">📋 CÓMO FUNCIONA</div>
+        <ul class="list-disc list-inside space-y-1 text-neutral-300">
+          <li>Cada punto de venta tiene su propio QR. Imprímelo y déjalo visible en el local.</li>
+          <li>Cuando un cliente escanea el QR, llega al sitio y se le asigna el código del vendedor durante esa sesión (si cierra el browser y vuelve después, ya no cuenta).</li>
+          <li>Si esa sesión termina en compra <strong>pagada</strong>, automáticamente queda registrada con el vendedor.</li>
+          <li>La comisión se calcula <strong>solo sobre el neto</strong> (sin IVA) de compras pagadas. El % es global y configurable arriba.</li>
+          <li>Cuando pagues a un vendedor, anótalo manualmente fuera del sistema (esta app aún no tracea pagos de comisión).</li>
+        </ul>
+      </div>
+
+      <!-- Modal QR -->
+      ${qrModal && html`
+        <div onClick=${()=>setQrModal(null)} class="fixed inset-0 z-[70] bg-black/90 backdrop-blur flex items-center justify-center p-6">
+          <div onClick=${e=>e.stopPropagation()} class="bg-neutral-950 border border-brand/40 rounded-3xl p-8 max-w-md w-full">
+            <div class="text-center">
+              <div class="text-[10px] tracking-[0.4em] text-brand mb-2">// QR PUNTO DE VENTA</div>
+              <h3 class="display text-2xl mb-4">${qrModal.vendor.name}</h3>
+              <div class="bg-white p-4 rounded-2xl inline-block mb-4">
+                <img src=${qrModal.dataUrl} alt="QR" class="w-64 h-64 block"/>
+              </div>
+              <div class="text-xs text-neutral-400 mb-4 break-all font-mono bg-black/40 rounded-lg p-2">${qrModal.url}</div>
+              <div class="flex gap-2 justify-center flex-wrap">
+                <button onClick=${downloadQR} class="px-5 py-3 bg-brand text-black display tracking-widest text-xs rounded-full hover-glow">↓ DESCARGAR PNG</button>
+                <button onClick=${copyURL} class="px-5 py-3 border border-white/20 hover:border-brand display tracking-widest text-xs rounded-full">📋 COPIAR URL</button>
+                <button onClick=${()=>setQrModal(null)} class="px-5 py-3 border border-white/10 hover:border-white/30 display tracking-widest text-xs rounded-full">CERRAR</button>
+              </div>
+              <div class="text-[10px] text-neutral-600 mt-4">Imprímelo en alta calidad para colocar en el local. Tamaño recomendado: 10x10 cm o más.</div>
+            </div>
+          </div>
+        </div>
+      `}
     </div>
   `;
 }
@@ -2961,6 +3212,7 @@ function Admin({ open, close, sorteos, stickersList,
                     ['ingresos','💰 INGRESOS / IVA'],
                     ['stickers','🎟️ STICKERS'],
                     ['participantes','👥 PARTICIPANTES'],
+                    ['vendedores','📍 VENDEDORES / QR'],
                     ['bases','📜 BASES PDF'],
                     ['legal','⚖️ LEGAL (T&C + PRIVACY)'],
                     ['faq','❓ FAQ'],
@@ -3219,6 +3471,7 @@ function Admin({ open, close, sorteos, stickersList,
                   ${section==='faq' && html`<${FAQAdmin} showToast=${showToast}/>`}
                   ${section==='boletas' && html`<${BoletasAdmin} showToast=${showToast} sorteos=${sorteos}/>`}
                   ${section==='ingresos' && html`<${IngresosAdmin} showToast=${showToast}/>`}
+                  ${section==='vendedores' && html`<${VendedoresAdmin} showToast=${showToast}/>`}
                   ${section==='ruleta' && html`<${SorteoVRFAdmin} sorteos=${sorteos} refreshSorteos=${refreshSorteos} showToast=${showToast}/>`}
                 </main>
               </div>
@@ -3328,6 +3581,21 @@ function App(){
       url.searchParams.delete('checkout');
       url.searchParams.delete('compra');
       url.searchParams.delete('session');
+      window.history.replaceState({}, '', url.toString());
+    }
+  }, []);
+
+  // Capturar ref de vendedor desde URL ?ref=<slug> y guardar en sessionStorage (sólo sesión actual)
+  useEffect(()=>{
+    const p = new URLSearchParams(window.location.search);
+    const ref = (p.get('ref') || '').trim().toLowerCase();
+    if (ref && /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/.test(ref)) {
+      try {
+        sessionStorage.setItem('cep:vendedor_slug', ref);
+      } catch(_) {}
+      // limpiar URL pero mantener ref activo en session
+      const url = new URL(window.location.href);
+      url.searchParams.delete('ref');
       window.history.replaceState({}, '', url.toString());
     }
   }, []);
