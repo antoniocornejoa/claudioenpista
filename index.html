@@ -2340,11 +2340,37 @@ function BoletasAdmin({ showToast, sorteos=[] }){
 }
 
 /* ============== SORTEO VRF — Admin UI ============== */
+async function findBlockAfter(targetTimestampMs){
+  const targetSec = Math.floor(targetTimestampMs / 1000);
+  // 1. Bloque más cercano al timestamp (al o antes)
+  const r1 = await fetch(`https://mempool.space/api/v1/mining/blocks/timestamp/${targetSec}`);
+  if (!r1.ok) throw new Error('mempool.space no responde — reintenta en un minuto');
+  const data = await r1.json();
+  if (data.timestamp >= targetSec) {
+    return { height: data.height, hash: data.hash, timestamp: data.timestamp };
+  }
+  // 2. Necesitamos el siguiente
+  const nextHeight = data.height + 1;
+  const r2 = await fetch(`https://mempool.space/api/block-height/${nextHeight}`);
+  if (!r2.ok) {
+    throw new Error('Aún no hay un bloque BTC posterior al objetivo. Espera unos minutos (los bloques se minan cada ~10 min en promedio) y reintenta.');
+  }
+  const hash = (await r2.text()).trim();
+  const r3 = await fetch(`https://mempool.space/api/block/${hash}`);
+  if (!r3.ok) throw new Error('No se pudo obtener el detalle del bloque');
+  const meta = await r3.json();
+  return { height: meta.height, hash: meta.id, timestamp: meta.timestamp };
+}
+
 function SorteoVRFAdmin({ sorteos, refreshSorteos, showToast }){
   const [selectedId, setSelectedId] = useState(null);
   const [seedTargetAt, setSeedTargetAt] = useState(''); // datetime-local
   const [blockHeight, setBlockHeight] = useState('');
   const [busy, setBusy] = useState(false);
+  const [foundBlock, setFoundBlock] = useState(null);
+  const [searching, setSearching] = useState(false);
+  const [now, setNow] = useState(Date.now());
+  useEffect(()=>{ const t = setInterval(()=>setNow(Date.now()), 1000); return ()=>clearInterval(t); },[]);
 
   const sorteo = sorteos.find(s => s.id === selectedId) || null;
 
@@ -2389,6 +2415,18 @@ function SorteoVRFAdmin({ sorteos, refreshSorteos, showToast }){
       await refreshSorteos();
     } catch(e){ showToast('Error: '+e.message, 'err'); }
     setBusy(false);
+  }
+  async function handleAutoFindBlock(){
+    if (!sorteo?.seedTargetAt) return showToast('No hay seed objetivo', 'err');
+    setSearching(true); setFoundBlock(null);
+    try {
+      const targetMs = new Date(sorteo.seedTargetAt).getTime();
+      const block = await findBlockAfter(targetMs);
+      setFoundBlock(block);
+      setBlockHeight(String(block.height));
+      showToast(`✓ Bloque BTC #${block.height} encontrado`);
+    } catch(e){ showToast(e.message, 'err'); }
+    setSearching(false);
   }
 
   return html`
@@ -2453,33 +2491,103 @@ function SorteoVRFAdmin({ sorteos, refreshSorteos, showToast }){
           `}
 
           ${sorteo.lifecycleStatus === 'frozen' && html`
+            ${(()=>{
+              const targetMs = sorteo.seedTargetAt ? new Date(sorteo.seedTargetAt).getTime() : 0;
+              const targetReached = targetMs > 0 && now >= targetMs;
+              const remaining = Math.max(0, targetMs - now);
+              const days = Math.floor(remaining / 86400000);
+              const hours = Math.floor((remaining % 86400000) / 3600000);
+              const mins = Math.floor((remaining % 3600000) / 60000);
+              const secs = Math.floor((remaining % 60000) / 1000);
+              return html`
             <div>
-              <div class="text-sm text-neutral-300 mb-4 leading-relaxed">
-                <strong class="text-brand">Paso 2: Esperar y ejecutar</strong> — la lista quedó hasheada. Cuando llegue la fecha objetivo, busca el primer bloque BTC posterior y ejecuta.
+              <div class="text-sm text-neutral-300 mb-5 leading-relaxed">
+                <strong class="text-brand">Paso 2: Ejecutar el sorteo</strong> — la lista de números quedó hasheada y ya nadie puede comprar.
+                Solo falta tomar el seed aleatorio del bloque BTC y ejecutar el ganador.
               </div>
-              <div class="bg-black/40 border border-white/10 rounded-xl p-5 mb-4 space-y-3 text-xs font-mono">
-                <div><span class="text-neutral-500">Hash pre-commit:</span><br/><span class="text-brand break-all">${sorteo.preCommitHash}</span></div>
-                <div><span class="text-neutral-500">Números emitidos:</span> <span class="text-white">${sorteo.preCommitCount}</span></div>
-                <div><span class="text-neutral-500">Freezeado:</span> <span class="text-white">${new Date(sorteo.preCommitAt).toLocaleString('es-CL')}</span></div>
-                <div><span class="text-neutral-500">Seed objetivo:</span> <span class="text-white">${new Date(sorteo.seedTargetAt).toLocaleString('es-CL')} CLT</span></div>
+
+              <!-- INFO CARDS -->
+              <div class="grid md:grid-cols-2 gap-3 mb-5">
+                <div class="bg-black/40 border border-white/10 rounded-xl p-4">
+                  <div class="text-[10px] tracking-widest text-neutral-500 mb-1">// SEED OBJETIVO</div>
+                  <div class="text-white font-semibold">${new Date(sorteo.seedTargetAt).toLocaleString('es-CL', { timeZone:'America/Santiago', weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}</div>
+                  <div class="text-[10px] text-neutral-500 mt-1">hora Chile</div>
+                </div>
+                <div class=${"rounded-xl p-4 border " + (targetReached ? "bg-green-900/20 border-green-700/40" : "bg-yellow-900/10 border-yellow-700/30")}>
+                  <div class="text-[10px] tracking-widest mb-1 ${targetReached?'text-green-400':'text-yellow-300'}">// ESTADO</div>
+                  ${targetReached ? html`
+                    <div class="text-green-400 font-semibold">✓ Listo para ejecutar</div>
+                    <div class="text-[10px] text-neutral-400 mt-1">El seed objetivo ya pasó. Puedes buscar el bloque ahora.</div>
+                  ` : html`
+                    <div class="text-yellow-300 font-mono text-base">⏰ ${days}d ${hours}h ${String(mins).padStart(2,'0')}m ${String(secs).padStart(2,'0')}s</div>
+                    <div class="text-[10px] text-neutral-400 mt-1">Espera a que llegue el momento del seed objetivo.</div>
+                  `}
+                </div>
               </div>
-              <div class="bg-black/40 border border-white/10 rounded-xl p-5 mb-4 text-xs">
-                <div class="text-neutral-500 mb-2">CÓMO ENCONTRAR EL BLOQUE BTC:</div>
-                <ol class="text-neutral-300 leading-relaxed list-decimal list-inside space-y-1">
-                  <li>Ve a <a href="https://mempool.space" target="_blank" class="text-brand hover:underline">mempool.space</a></li>
-                  <li>Busca el primer bloque cuyo "Block time" sea posterior a <strong class="text-brand">${new Date(sorteo.seedTargetAt).toISOString()}</strong></li>
-                  <li>Copia su número de bloque (height)</li>
-                  <li>Pégalo abajo y haz click en EJECUTAR</li>
-                </ol>
+
+              <!-- MÉTODO AUTOMÁTICO (recomendado) -->
+              <div class="border-2 border-brand/40 bg-brand/5 rounded-2xl p-5 mb-4">
+                <div class="flex items-start justify-between gap-3 mb-3">
+                  <div>
+                    <div class="display text-lg text-brand">🔍 BUSCAR BLOQUE AUTOMÁTICAMENTE</div>
+                    <div class="text-xs text-neutral-400 mt-1">Consultamos mempool.space por ti y rellenamos el campo. Recomendado.</div>
+                  </div>
+                </div>
+                <button onClick=${handleAutoFindBlock} disabled=${searching || !targetReached}
+                  class="w-full px-6 py-3 bg-brand text-black display tracking-widest rounded-full hover-glow disabled:opacity-40 disabled:cursor-not-allowed">
+                  ${searching?'Buscando en mempool.space...': !targetReached ? 'AÚN NO ES HORA' : '🔍 BUSCAR EL BLOQUE BTC AHORA'}
+                </button>
+                ${foundBlock && html`
+                  <div class="mt-4 bg-black/60 border border-green-700/40 rounded-xl p-4 text-xs">
+                    <div class="text-green-400 font-semibold mb-2">✓ Bloque encontrado</div>
+                    <div class="space-y-1 text-neutral-300">
+                      <div><span class="text-neutral-500">Height:</span> <span class="font-mono text-brand">#${foundBlock.height}</span></div>
+                      <div><span class="text-neutral-500">Minado:</span> ${new Date(foundBlock.timestamp*1000).toLocaleString('es-CL', {timeZone:'America/Santiago'})} (Chile)</div>
+                      <div class="break-all"><span class="text-neutral-500">Hash:</span> <span class="font-mono text-[10px]">${foundBlock.hash}</span></div>
+                      <div class="text-[10px] text-neutral-500 pt-1">Verifica si quieres en <a href=${`https://mempool.space/block/${foundBlock.hash}`} target="_blank" class="text-brand hover:underline">mempool.space ↗</a></div>
+                    </div>
+                  </div>
+                `}
               </div>
-              <label class="text-xs text-neutral-500 tracking-widest block mb-2">BLOCK HEIGHT (BITCOIN)</label>
+
+              <!-- MÉTODO MANUAL (colapsable) -->
+              <details class="bg-black/30 border border-white/10 rounded-xl p-4 mb-5 text-xs">
+                <summary class="cursor-pointer text-neutral-400 hover:text-white tracking-widest text-[11px]">▶ ¿PREFIERES HACERLO MANUAL? CLICK AQUÍ</summary>
+                <div class="mt-3 text-neutral-300 leading-relaxed space-y-2">
+                  <ol class="list-decimal list-inside space-y-2">
+                    <li>Abre <a href="https://mempool.space" target="_blank" class="text-brand hover:underline">mempool.space ↗</a></li>
+                    <li>En la página principal busca la lista "Latest Blocks" (Bloques Recientes).</li>
+                    <li>Encuentra el primer bloque cuyo timestamp sea <strong class="text-brand">posterior a ${new Date(sorteo.seedTargetAt).toLocaleString('es-CL', {timeZone:'America/Santiago'})}</strong>.</li>
+                    <li>Click en ese bloque y copia el número (height) que aparece arriba.</li>
+                    <li>Pégalo abajo en el campo "Block height" y ejecuta.</li>
+                  </ol>
+                  <div class="bg-yellow-900/10 border border-yellow-700/30 rounded-lg p-3 mt-2">
+                    <strong class="text-yellow-300">Tip:</strong> el método automático hace exactamente esto por ti, así que normalmente no necesitas hacerlo manual. Es solo por transparencia / verificación.
+                  </div>
+                </div>
+              </details>
+
+              <!-- INPUT + EJECUTAR -->
+              <label class="text-xs text-neutral-500 tracking-widest block mb-2">BLOCK HEIGHT (BITCOIN) ${foundBlock && html`<span class="text-green-400 normal-case ml-2 lowercase tracking-normal">✓ rellenado automáticamente</span>`}</label>
               <input type="number" value=${blockHeight} onChange=${e=>setBlockHeight(e.target.value)} placeholder="ej: 871234"
-                class="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 outline-none focus:border-brand mb-5"/>
+                class="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-3 outline-none focus:border-brand mb-5 font-mono"/>
               <button onClick=${handleExecute} disabled=${busy || !blockHeight}
-                class="px-8 py-4 bg-brand text-black display tracking-widest rounded-full disabled:opacity-40 hover-glow">
-                ${busy?'...':'🎲 EJECUTAR SORTEO'}
+                class="w-full px-8 py-4 bg-red-600 hover:bg-red-500 text-white display tracking-widest rounded-full disabled:opacity-40 disabled:cursor-not-allowed">
+                ${busy?'EJECUTANDO...':'🎲 EJECUTAR SORTEO Y ELEGIR GANADOR (IRREVERSIBLE)'}
               </button>
+
+              <!-- DETALLES TÉCNICOS (colapsable) -->
+              <details class="mt-5 bg-black/30 border border-white/10 rounded-xl p-4 text-xs">
+                <summary class="cursor-pointer text-neutral-500 hover:text-neutral-300 tracking-widest text-[11px]">▶ DETALLES TÉCNICOS DEL FREEZE</summary>
+                <div class="mt-3 space-y-2 font-mono">
+                  <div><span class="text-neutral-500">Hash pre-commit:</span><br/><span class="text-brand break-all">${sorteo.preCommitHash}</span></div>
+                  <div><span class="text-neutral-500">Números emitidos:</span> <span class="text-white">${sorteo.preCommitCount}</span></div>
+                  <div><span class="text-neutral-500">Freezeado:</span> <span class="text-white">${new Date(sorteo.preCommitAt).toLocaleString('es-CL', {timeZone:'America/Santiago'})}</span></div>
+                </div>
+              </details>
             </div>
+            `;
+            })()}
           `}
 
           ${sorteo.lifecycleStatus === 'completed' && html`
