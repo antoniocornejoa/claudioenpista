@@ -2119,25 +2119,25 @@ function IngresosAdmin({ showToast }){
 
       <!-- KPI cards -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <div class="bg-gradient-to-br from-brand/20 via-brand/5 to-transparent border border-brand/40 rounded-2xl p-4">
+        <div class="bg-gradient-to-br from-brand/20 via-brand/5 to-transparent border border-brand/40 rounded-2xl p-4 min-w-0">
           <div class="text-[10px] tracking-widest text-brand mb-1">// TOTAL RECAUDADO</div>
-          <div class="display text-2xl text-brand">${fmtCLP(totals.total)}</div>
+          <div class="display text-xl text-brand truncate" title=${fmtCLP(totals.total)}>${fmtCLP(totals.total)}</div>
           <div class="text-[10px] text-neutral-500 mt-1">CLP · IVA incluido</div>
         </div>
-        <div class="bg-white/5 border border-white/10 rounded-2xl p-4">
+        <div class="bg-white/5 border border-white/10 rounded-2xl p-4 min-w-0">
           <div class="text-[10px] tracking-widest text-neutral-400 mb-1">// NETO (sin IVA)</div>
-          <div class="display text-2xl">${fmtCLP(totals.neto)}</div>
+          <div class="display text-xl truncate" title=${fmtCLP(totals.neto)}>${fmtCLP(totals.neto)}</div>
           <div class="text-[10px] text-neutral-500 mt-1">total / 1,19</div>
         </div>
-        <div class="bg-yellow-900/10 border border-yellow-700/30 rounded-2xl p-4">
+        <div class="bg-yellow-900/10 border border-yellow-700/30 rounded-2xl p-4 min-w-0">
           <div class="text-[10px] tracking-widest text-yellow-300 mb-1">// IVA DÉBITO</div>
-          <div class="display text-2xl text-yellow-300">${fmtCLP(totals.iva)}</div>
-          <div class="text-[10px] text-neutral-500 mt-1">19% que vas al SII</div>
+          <div class="display text-xl text-yellow-300 truncate" title=${fmtCLP(totals.iva)}>${fmtCLP(totals.iva)}</div>
+          <div class="text-[10px] text-neutral-500 mt-1">19% que va al SII</div>
         </div>
-        <div class="bg-white/5 border border-white/10 rounded-2xl p-4">
+        <div class="bg-white/5 border border-white/10 rounded-2xl p-4 min-w-0">
           <div class="text-[10px] tracking-widest text-neutral-400 mb-1">// COMPRAS PAGADAS</div>
-          <div class="display text-2xl">${totals.compras.toLocaleString('es-CL')}</div>
-          <div class="text-[10px] text-neutral-500 mt-1">${totals.numeros.toLocaleString('es-CL')} números · ${totals.participantes.toLocaleString('es-CL')} participantes</div>
+          <div class="display text-xl">${totals.compras.toLocaleString('es-CL')}</div>
+          <div class="text-[10px] text-neutral-500 mt-1 truncate" title=${`${totals.numeros} números · ${totals.participantes} participantes`}>${totals.numeros.toLocaleString('es-CL')} núm. · ${totals.participantes.toLocaleString('es-CL')} pers.</div>
         </div>
       </div>
 
@@ -2149,17 +2149,17 @@ function IngresosAdmin({ showToast }){
         </div>
       ` : html`
         <div class="overflow-x-auto border border-white/10 rounded-2xl">
-          <table class="w-full text-sm">
+          <table class="w-full text-sm whitespace-nowrap">
             <thead>
               <tr class="text-left text-neutral-500 text-[10px] tracking-widest border-b border-white/10 bg-black/30">
                 <th class="py-3 px-3">SORTEO</th>
                 <th class="px-3">ESTADO</th>
-                <th class="px-3 text-right">TOTAL RECAUDADO</th>
+                <th class="px-3 text-right">TOTAL</th>
                 <th class="px-3 text-right">NETO</th>
-                <th class="px-3 text-right text-yellow-300">IVA DÉBITO 19%</th>
+                <th class="px-3 text-right text-yellow-300">IVA 19%</th>
                 <th class="px-3 text-center">COMPRAS</th>
-                <th class="px-3 text-center">NÚMEROS</th>
-                <th class="px-3 text-center">PARTICIPANTES</th>
+                <th class="px-3 text-center">NÚMS.</th>
+                <th class="px-3 text-center">PERS.</th>
               </tr>
             </thead>
             <tbody>
@@ -2262,37 +2262,35 @@ function BoletasAdmin({ showToast, sorteos=[] }){
           <div class="text-xs text-neutral-600 mt-2">Cuando configures OpenFactura y se realice una compra paid, las boletas aparecen acá.</div>
         </div>
       ` : html`
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="text-left text-neutral-500 text-[10px] tracking-widest border-b border-white/10">
-                <th class="py-3">FECHA</th><th>COMPRA</th><th>SORTEO</th><th>CLIENTE</th><th>FOLIO</th><th>MONTO</th><th>ESTADO</th><th>ACCIONES</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${boletas.filter(b => !sorteoFilter || String(b.compras?.sorteo_id)===sorteoFilter).map(b => html`
-                <tr key=${b.id} class="border-b border-white/5 hover:bg-white/5">
-                  <td class="py-3 text-xs text-neutral-500">${new Date(b.created_at).toLocaleDateString('es-CL')}</td>
-                  <td class="font-mono text-xs">#${b.compra_id}</td>
-                  <td class="text-xs text-neutral-400">${(b.compras?.sorteos?.title||'—').substring(0,20)}</td>
-                  <td class="text-xs">${b.compras?.participantes?.name || '—'}<br/><span class="text-neutral-500">${b.compras?.participantes?.email || ''}</span></td>
-                  <td class="font-mono">${b.folio || '—'}</td>
-                  <td class="text-brand font-mono">$${(b.monto_total||0).toLocaleString('es-CL')}</td>
-                  <td>
-                    ${b.estado === 'emitted' ? html`<span class="bg-green-900/40 text-green-400 px-2 py-0.5 rounded-full text-[10px] tracking-widest">EMITIDA</span>`
-                    : b.estado === 'pending' ? html`<span class="bg-yellow-900/40 text-yellow-400 px-2 py-0.5 rounded-full text-[10px] tracking-widest">PENDING</span>`
-                    : html`<span class="bg-red-900/40 text-red-400 px-2 py-0.5 rounded-full text-[10px] tracking-widest" title=${b.error_msg||''}>FAILED</span>`}
-                  </td>
-                  <td class="text-xs">
-                    <div class="flex gap-2">
-                      ${b.pdf_url && html`<a href=${b.pdf_url} target="_blank" class="text-brand hover:underline">PDF ↗</a>`}
-                      ${b.estado === 'failed' && html`<button onClick=${()=>retry(b.id, b.compra_id)} class="text-yellow-400 hover:underline">Reintentar</button>`}
-                    </div>
-                  </td>
-                </tr>
-              `)}
-            </tbody>
-          </table>
+        <div class="space-y-3">
+          ${boletas.filter(b => !sorteoFilter || String(b.compras?.sorteo_id)===sorteoFilter).map(b => html`
+            <div key=${b.id} class="border border-white/10 rounded-xl bg-black/30 p-4 hover:border-white/20 transition">
+              <div class="flex items-start gap-3 flex-wrap">
+                <div class="font-mono text-[10px] text-neutral-500 pt-1 shrink-0">#${b.compra_id}</div>
+                <div class="flex-1 min-w-[180px]">
+                  <div class="font-semibold text-white truncate" title=${b.compras?.participantes?.name||''}>${b.compras?.participantes?.name || '—'}</div>
+                  <div class="text-[11px] text-neutral-400 truncate" title=${b.compras?.participantes?.email||''}>${b.compras?.participantes?.email || '—'}</div>
+                </div>
+                <div class="text-right shrink-0">
+                  <div class="text-brand font-mono font-bold">$${(b.monto_total||0).toLocaleString('es-CL')}</div>
+                  ${b.estado === 'emitted' ? html`<span class="inline-block mt-1 bg-green-900/40 text-green-400 px-2 py-0.5 rounded-full text-[9px] tracking-widest">EMITIDA</span>`
+                  : b.estado === 'pending' ? html`<span class="inline-block mt-1 bg-yellow-900/40 text-yellow-400 px-2 py-0.5 rounded-full text-[9px] tracking-widest">PENDIENTE</span>`
+                  : html`<span class="inline-block mt-1 bg-red-900/40 text-red-400 px-2 py-0.5 rounded-full text-[9px] tracking-widest" title=${b.error_msg||''}>FALLIDA</span>`}
+                </div>
+              </div>
+              <div class="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-neutral-500 mt-2 pt-2 border-t border-white/5">
+                <div><span class="text-neutral-600">📅</span> ${new Date(b.created_at).toLocaleDateString('es-CL')}</div>
+                <div><span class="text-neutral-600">📃</span> Folio <span class="font-mono">${b.folio || '—'}</span></div>
+                <div class="truncate max-w-[200px]" title=${b.compras?.sorteos?.title||''}><span class="text-neutral-600">🏆</span> ${b.compras?.sorteos?.title || '—'}</div>
+                ${(b.pdf_url || b.estado === 'failed') && html`
+                  <div class="ml-auto flex gap-3">
+                    ${b.pdf_url && html`<a href=${b.pdf_url} target="_blank" class="text-brand hover:underline">PDF ↗</a>`}
+                    ${b.estado === 'failed' && html`<button onClick=${()=>retry(b.id, b.compra_id)} class="text-yellow-400 hover:underline">Reintentar</button>`}
+                  </div>
+                `}
+              </div>
+            </div>
+          `)}
         </div>
       `}
       <div class="mt-6 p-5 bg-yellow-900/10 border border-yellow-700/30 rounded-2xl text-xs text-yellow-200/80">
@@ -2925,40 +2923,41 @@ function Admin({ open, close, sorteos, stickersList,
                         </div>
                       </div>
                       ${comprasBusy ? html`<div class="text-center py-12 text-neutral-500">Cargando...</div>` : html`
-                        <div class="overflow-x-auto">
-                          <table class="w-full text-sm">
-                            <thead>
-                              <tr class="text-left text-neutral-500 text-[10px] tracking-widest border-b border-white/10">
-                                <th class="py-3">#</th><th>FECHA</th><th>NOMBRE</th><th>EMAIL</th><th>RUT</th><th>SORTEO</th><th>MONTO</th><th>STATUS</th><th>NÚMEROS</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              ${compras.filter(c=>(comprasFilter==='all'||c.status===comprasFilter) && (!comprasSorteoFilter||String(c.sorteo_id)===comprasSorteoFilter)).map(c=>html`
-                                <tr key=${c.compra_id} class="border-b border-white/5 hover:bg-white/5 align-top">
-                                  <td class="py-3 font-mono text-neutral-500">#${c.compra_id}</td>
-                                  <td class="text-neutral-500 text-xs">${new Date(c.created_at).toLocaleString('es-CL')}</td>
-                                  <td class="font-semibold">${c.name||'—'}</td>
-                                  <td class="text-neutral-400 text-xs">${c.email||'—'}</td>
-                                  <td class="text-neutral-400 font-mono text-xs">${c.rut||'—'}</td>
-                                  <td class="text-neutral-400 text-xs">${(c.sorteo_title||'').substring(0,20)}</td>
-                                  <td class="text-brand font-mono">$${(c.monto_total||0).toLocaleString('es-CL')}</td>
-                                  <td>
-                                    ${c.status==='paid' ? html`<span class="bg-green-900/40 text-green-400 px-2 py-0.5 rounded-full text-[10px] tracking-widest">PAID</span>`
-                                    : c.status==='pending' ? html`<span class="bg-yellow-900/40 text-yellow-400 px-2 py-0.5 rounded-full text-[10px] tracking-widest">PENDING</span>`
-                                    : html`<span class="bg-red-900/40 text-red-400 px-2 py-0.5 rounded-full text-[10px] tracking-widest">FAILED</span>`}
-                                  </td>
-                                  <td class="max-w-[280px]">
-                                    ${(c.numeros||[]).length === 0 ? html`<span class="text-neutral-600">—</span>` : html`
-                                      <div class="flex flex-wrap gap-1">
-                                        ${(c.numeros||[]).map(n => html`<span key=${n} class="bg-brand/20 text-brand px-2 py-0.5 rounded-full text-[10px] font-mono">${String(n).padStart(5,'0')}</span>`)}
-                                      </div>
-                                    `}
-                                  </td>
-                                </tr>
-                              `)}
-                              ${compras.length === 0 && html`<tr><td colspan="9" class="py-12 text-center text-neutral-500">Aún no hay compras registradas.</td></tr>`}
-                            </tbody>
-                          </table>
+                        <div class="space-y-3">
+                          ${compras.filter(c=>(comprasFilter==='all'||c.status===comprasFilter) && (!comprasSorteoFilter||String(c.sorteo_id)===comprasSorteoFilter)).map(c=>html`
+                            <div key=${c.compra_id} class="border border-white/10 rounded-xl bg-black/30 p-4 hover:border-white/20 transition">
+                              <!-- Fila 1: id, nombre, monto, status -->
+                              <div class="flex items-start gap-3 flex-wrap">
+                                <div class="font-mono text-[10px] text-neutral-500 pt-1 shrink-0">#${c.compra_id}</div>
+                                <div class="flex-1 min-w-[180px]">
+                                  <div class="font-semibold text-white truncate" title=${c.name||''}>${c.name||'—'}</div>
+                                  <div class="text-[11px] text-neutral-400 truncate" title=${c.email||''}>${c.email||'—'}</div>
+                                </div>
+                                <div class="text-right shrink-0">
+                                  <div class="text-brand font-mono font-bold">$${(c.monto_total||0).toLocaleString('es-CL')}</div>
+                                  ${c.status==='paid' ? html`<span class="inline-block mt-1 bg-green-900/40 text-green-400 px-2 py-0.5 rounded-full text-[9px] tracking-widest">PAGADA</span>`
+                                  : c.status==='pending' ? html`<span class="inline-block mt-1 bg-yellow-900/40 text-yellow-400 px-2 py-0.5 rounded-full text-[9px] tracking-widest">PENDIENTE</span>`
+                                  : html`<span class="inline-block mt-1 bg-red-900/40 text-red-400 px-2 py-0.5 rounded-full text-[9px] tracking-widest">FALLIDA</span>`}
+                                </div>
+                              </div>
+                              <!-- Fila 2: meta info -->
+                              <div class="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-neutral-500 mt-2 pt-2 border-t border-white/5">
+                                <div><span class="text-neutral-600">📅</span> ${new Date(c.created_at).toLocaleString('es-CL', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'})}</div>
+                                <div><span class="text-neutral-600">🪪</span> <span class="font-mono">${c.rut||'—'}</span></div>
+                                <div class="truncate max-w-[200px]" title=${c.sorteo_title||''}><span class="text-neutral-600">🏆</span> ${c.sorteo_title||'—'}</div>
+                              </div>
+                              <!-- Fila 3: números -->
+                              ${(c.numeros||[]).length > 0 && html`
+                                <div class="mt-2 pt-2 border-t border-white/5">
+                                  <div class="text-[9px] tracking-widest text-neutral-600 mb-1">// NÚMEROS ASIGNADOS</div>
+                                  <div class="flex flex-wrap gap-1">
+                                    ${(c.numeros||[]).map(n => html`<span key=${n} class="bg-brand/20 text-brand px-2 py-0.5 rounded-full text-[10px] font-mono">${String(n).padStart(5,'0')}</span>`)}
+                                  </div>
+                                </div>
+                              `}
+                            </div>
+                          `)}
+                          ${compras.length === 0 && html`<div class="py-12 text-center text-neutral-500">Aún no hay compras registradas.</div>`}
                         </div>
                       `}
                     </div>
